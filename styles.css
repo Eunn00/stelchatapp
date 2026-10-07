@@ -55,6 +55,10 @@ main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .card-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .card-copy > b { margin-top: 4px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }
 .card-copy > small { margin-top: 3px; display: block; overflow: hidden; color: #969198; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.card-copy > .recent-channel-row { display: flex; align-items: center; gap: 4px; }
+.recent-channel-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-channel-link { width: 18px; height: 18px; flex: 0 0 18px; padding: 0; display: inline-grid; place-items: center; border: 0; border-radius: 5px; background: rgba(120,140,226,.1); color: #6679cd; cursor: pointer; font-size: 10px; font-weight: 800; }
+.recent-channel-link:hover { background: rgba(120,140,226,.2); color: #4059c3; }
 .live-pill, .donation-pill { padding: 2px 5px; border-radius: 5px; background: #ed5d65; color: white; font-size: 8px; font-style: normal; font-weight: 800; }
 .donation-pill { background: #e79b39; }
 .channel-mark { margin-left: 3px; color: var(--mark-color); font-style: normal; font-weight: 800; }

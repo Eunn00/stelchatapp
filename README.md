@@ -22,7 +22,7 @@ npm start
 npm run dist
 ```
 
-결과는 `release/StelChat-0.1.0-portable.exe`에 생성됩니다. 현재 실행 파일은 코드 서명이 없으므로 다른 PC에서는 Windows SmartScreen 경고가 표시될 수 있습니다.
+결과는 `release/StelChat-<version>-portable.exe`에 생성됩니다. 현재 실행 파일은 코드 서명이 없으므로 다른 PC에서는 Windows SmartScreen 경고가 표시될 수 있습니다.
 
 ## 설치 프로그램 생성
 

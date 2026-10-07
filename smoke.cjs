@@ -15,7 +15,21 @@ async function inspectRenderer() {
           errorHidden: document.querySelector('#error').hidden,
           connection: document.querySelector('#connection span').textContent,
           liveCards: document.querySelectorAll('.live-card').length,
+          liveLink: (() => {
+            const original = state.streamers;
+            state.streamers = [{ uid: '45e71a76e949e16a34764deb962f9d9f', initials: 'YN', name: '아야츠노 유니', color: '#a993e8', is_live: true }];
+            renderLive();
+            const value = document.querySelector('.live-card').dataset.url;
+            state.streamers = original;
+            renderLive();
+            bindOpenLinks();
+            return value;
+          })(),
           recentGroups: document.querySelectorAll('.recent-group').length,
+          recentLiveLinks: [...document.querySelectorAll('.recent-channel-link')].filter((item) => {
+            const prefix = 'https://chzzk.naver.com/live/';
+            return item.dataset.url.startsWith(prefix) && /^[0-9a-f]{32}$/.test(item.dataset.url.slice(prefix.length));
+          }).length,
           expandedGroups: document.querySelectorAll('.recent-group.expanded').length,
           previewMessages: document.querySelectorAll('.preview-message').length,
           moreButtons: document.querySelectorAll('.recent-more').length,
@@ -33,6 +47,12 @@ async function inspectRenderer() {
       const message = JSON.parse(event.data);
       if (message.id !== 1) return;
       clearTimeout(timeout);
+      if (message.result?.exceptionDetails) {
+        reject(new Error(message.result.exceptionDetails.exception?.description
+          || message.result.exceptionDetails.text
+          || 'Renderer evaluation failed'));
+        return;
+      }
       resolve(JSON.parse(message.result.result.value));
     });
     socket.addEventListener('error', () => reject(new Error('DevTools socket failed')));
@@ -40,10 +60,12 @@ async function inspectRenderer() {
   socket.close();
   console.log(JSON.stringify(result));
   if (!result.loadingHidden || !result.errorHidden || result.connection !== '실시간'
-      || !result.desktopMode || result.recentGroups < 1 || result.expandedGroups !== 1
-      || result.previewMessages < 1 || result.moreButtons !== 1 || !result.opacityValue.endsWith('%')
-      || result.notificationMembers !== 11 || !result.notificationSummary || !result.notificationPanelOpens
-      || result.bodyLength < 100) process.exitCode = 1;
+      || !result.desktopMode || result.liveLink !== 'https://chzzk.naver.com/live/45e71a76e949e16a34764deb962f9d9f'
+      || result.recentGroups < 1 || result.recentLiveLinks !== result.recentGroups
+      || !result.opacityValue.endsWith('%') || result.notificationMembers !== 11
+      || !result.notificationSummary || !result.notificationPanelOpens || result.bodyLength < 100) {
+    throw new Error(`Unexpected renderer state: ${JSON.stringify(result)}`);
+  }
 }
 
 inspectRenderer().catch((error) => {

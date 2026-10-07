@@ -11,6 +11,7 @@ const escapeHtml = (value = '') => String(value).replace(/[&<>'"]/g, (character)
 }[character]));
 const absoluteUrl = (value) => value?.startsWith('/') ? `${API_BASE}${value}` : value;
 const memberUrl = (initials) => `${API_BASE}/members/${encodeURIComponent(initials)}`;
+const liveUrl = (uid) => `https://chzzk.naver.com/live/${encodeURIComponent(uid)}`;
 const formatTime = (value) => value?.slice(11, 16) || '';
 const formatDate = (value) => value ? `${value.slice(5, 7)}/${value.slice(8, 10)}` : '';
 
@@ -36,7 +37,7 @@ function renderLive() {
   const items = state.streamers.filter((item) => item.is_live);
   $('#live-count').textContent = items.length;
   $('#live-list').innerHTML = items.length ? items.map((item) => `
-    <button class="live-card open-member" data-url="${memberUrl(item.initials)}" type="button" style="--member-color:${escapeHtml(item.color)}">
+    <button class="live-card open-member" data-url="${escapeHtml(liveUrl(item.uid))}" type="button" style="--member-color:${escapeHtml(item.color)}">
       ${avatar(item)}
       <span class="card-copy"><span class="card-title"><strong>${escapeHtml(item.name)}</strong><i class="live-pill">LIVE</i></span><b>${escapeHtml(item.live_title || '방송 중')}</b><small>${escapeHtml(item.live_category || '카테고리 없음')}</small></span>
       <time data-opened-at="${escapeHtml(item.live_opened_at || '')}">${uptime(item.live_opened_at)}</time>
@@ -71,11 +72,11 @@ function recentPreviewHtml(item) {
 function renderRecent() {
   $('#recent-list').innerHTML = state.recent.length ? state.recent.map((item) => `
     <article class="recent-group${state.expandedRecentKey === recentKey(item) ? ' expanded' : ''}" data-key="${recentKey(item)}">
-      <button class="recent-summary" data-key="${recentKey(item)}" type="button" aria-expanded="${state.expandedRecentKey === recentKey(item)}">
+      <div class="recent-summary" data-key="${recentKey(item)}" role="button" tabindex="0" aria-expanded="${state.expandedRecentKey === recentKey(item)}">
         ${avatar(item, 'target_')}
-        <span class="card-copy"><span class="card-title"><strong>${escapeHtml(item.target_name)}</strong>${item.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}</span><small>${escapeHtml(item.channel_name)}${markHtml(item)}의 방송에서</small><b>“${escapeHtml(item.content)}”</b></span>
+        <span class="card-copy"><span class="card-title"><strong>${escapeHtml(item.target_name)}</strong>${item.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}</span><small class="recent-channel-row"><span>${escapeHtml(item.channel_name)}${markHtml(item)}의 방송에서</span><button class="recent-channel-link" data-url="${escapeHtml(liveUrl(item.channel_id))}" type="button" title="CHZZK 라이브 채널 열기" aria-label="${escapeHtml(item.channel_name)} CHZZK 라이브 채널 열기">↗</button></small><b>“${escapeHtml(item.content)}”</b></span>
         <span class="recent-meta"><time>${formatDate(item.sent_at)}<br />${formatTime(item.sent_at)}</time><i>⌄</i></span>
-      </button>
+      </div>
       ${state.expandedRecentKey === recentKey(item) ? `<div class="recent-preview">${recentPreviewHtml(item)}</div>` : ''}
     </article>`).join('') : `<div class="empty"><span>…</span><strong>최근 채팅이 없습니다</strong></div>`;
   bindRecentControls();
@@ -107,7 +108,7 @@ async function expandRecent(item) {
 
 function bindRecentControls() {
   document.querySelectorAll('.recent-summary').forEach((element) => {
-    element.addEventListener('click', () => {
+    const toggle = () => {
       const key = element.dataset.key;
       if (state.expandedRecentKey === key) {
         state.expandedRecentKey = '';
@@ -116,6 +117,19 @@ function bindRecentControls() {
         const item = findRecent(key);
         if (item) void expandRecent(item);
       }
+    };
+    element.addEventListener('click', toggle);
+    element.addEventListener('keydown', (event) => {
+      if (event.target === element && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault();
+        toggle();
+      }
+    });
+  });
+  document.querySelectorAll('.recent-channel-link').forEach((element) => {
+    element.addEventListener('click', (event) => {
+      event.stopPropagation();
+      window.stelchat.openUrl(element.dataset.url);
     });
   });
   document.querySelectorAll('.recent-more').forEach((element) => {

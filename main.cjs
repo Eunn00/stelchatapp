@@ -47,6 +47,20 @@ function memberUrl(initials) {
   return initials ? `${API_BASE}/members/${encodeURIComponent(initials)}` : API_BASE;
 }
 
+function allowedExternalUrl(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    if (url.origin === API_BASE) return url.href;
+    if (url.origin === 'https://chzzk.naver.com'
+        && /^\/live\/[0-9a-f]{32}$/.test(url.pathname)
+        && !url.search && !url.hash) return url.href;
+  } catch {
+    // Ignore malformed or non-HTTPS external URLs.
+  }
+  return null;
+}
+
 async function fetchJson(endpoint) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -294,7 +308,8 @@ function createWindow() {
   mainWindow.on('move', rememberBounds);
   mainWindow.on('resize', rememberBounds);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https://stelchat.xyz/')) shell.openExternal(url);
+    const externalUrl = allowedExternalUrl(url);
+    if (externalUrl) shell.openExternal(externalUrl);
     return { action: 'deny' };
   });
 }
@@ -336,7 +351,8 @@ ipcMain.handle('session-preview', (_event, sessionId, targetUid) => {
   return fetchJson(`/api/sessions/${numericSessionId}?target_uid=${encodeURIComponent(targetUid)}&limit=20`);
 });
 ipcMain.handle('open-url', (_event, url) => {
-  if (typeof url === 'string' && url.startsWith('https://stelchat.xyz/')) shell.openExternal(url);
+  const externalUrl = allowedExternalUrl(url);
+  if (externalUrl) shell.openExternal(externalUrl);
 });
 ipcMain.handle('set-setting', (_event, key, value) => setSetting(key, value));
 ipcMain.handle('set-member-notification', (_event, uid, value) => setMemberNotification(uid, value));
