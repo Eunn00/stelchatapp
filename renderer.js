@@ -37,16 +37,16 @@ function renderLive() {
   const items = state.streamers.filter((item) => item.is_live);
   $('#live-count').textContent = items.length;
   $('#live-list').innerHTML = items.length ? items.map((item) => `
-    <button class="live-card open-member" data-url="${escapeHtml(liveUrl(item.uid))}" type="button" style="--member-color:${escapeHtml(item.color)}">
+    <article class="live-card" style="--member-color:${escapeHtml(item.color)}">
       ${avatar(item)}
       <span class="card-copy"><span class="card-title"><strong>${escapeHtml(item.name)}</strong><i class="live-pill">LIVE</i></span><b>${escapeHtml(item.live_title || '방송 중')}</b><small>${escapeHtml(item.live_category || '카테고리 없음')}</small></span>
-      <time data-opened-at="${escapeHtml(item.live_opened_at || '')}">${uptime(item.live_opened_at)}</time>
-    </button>`).join('') : `<div class="empty"><span>☾</span><strong>현재 방송 중인 멤버가 없어요</strong><p>방송이 시작되면 자동으로 표시됩니다.</p></div>`;
+      <span class="live-card-actions"><button class="live-channel-link" data-url="${escapeHtml(liveUrl(item.uid))}" type="button" title="CHZZK 라이브 채널 열기" aria-label="${escapeHtml(item.name)} CHZZK 라이브 채널 열기">↗</button><time data-opened-at="${escapeHtml(item.live_opened_at || '')}">${uptime(item.live_opened_at)}</time></span>
+    </article>`).join('') : `<div class="empty"><span>☾</span><strong>현재 방송 중인 멤버가 없어요</strong><p>방송이 시작되면 자동으로 표시됩니다.</p></div>`;
 }
 
 function markHtml(item) {
   const marks = item.channel_marks || [];
-  return marks.map((mark) => `<i class="channel-mark" style="--mark-color:${escapeHtml(mark.color)}" title="${escapeHtml(mark.title)}">${escapeHtml(mark.symbol)}</i>`).join('');
+  return marks.map((mark) => `<i class="channel-mark channel-mark-${escapeHtml(mark.key || 'legacy')}" style="--mark-color:${escapeHtml(mark.color)}" title="${escapeHtml(mark.title)}">${escapeHtml(mark.symbol)}</i>`).join('');
 }
 
 const recentKey = (item) => `${item.session_id}:${item.target_uid}`;
@@ -138,7 +138,7 @@ function bindRecentControls() {
 }
 
 function bindOpenLinks() {
-  document.querySelectorAll('.open-member').forEach((element) => {
+  document.querySelectorAll('.open-member, .live-channel-link').forEach((element) => {
     element.addEventListener('click', () => window.stelchat.openUrl(element.dataset.url));
   });
 }

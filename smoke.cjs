@@ -15,11 +15,16 @@ async function inspectRenderer() {
           errorHidden: document.querySelector('#error').hidden,
           connection: document.querySelector('#connection span').textContent,
           liveCards: document.querySelectorAll('.live-card').length,
-          liveLink: (() => {
+          liveInteraction: (() => {
             const original = state.streamers;
             state.streamers = [{ uid: '45e71a76e949e16a34764deb962f9d9f', initials: 'YN', name: '아야츠노 유니', color: '#a993e8', is_live: true }];
             renderLive();
-            const value = document.querySelector('.live-card').dataset.url;
+            const card = document.querySelector('.live-card');
+            const value = {
+              link: document.querySelector('.live-channel-link').dataset.url,
+              cardTag: card.tagName,
+              cardUrl: card.dataset.url || '',
+            };
             state.streamers = original;
             renderLive();
             bindOpenLinks();
@@ -60,7 +65,8 @@ async function inspectRenderer() {
   socket.close();
   console.log(JSON.stringify(result));
   if (!result.loadingHidden || !result.errorHidden || result.connection !== '실시간'
-      || !result.desktopMode || result.liveLink !== 'https://chzzk.naver.com/live/45e71a76e949e16a34764deb962f9d9f'
+      || !result.desktopMode || result.liveInteraction.link !== 'https://chzzk.naver.com/live/45e71a76e949e16a34764deb962f9d9f'
+      || result.liveInteraction.cardTag !== 'ARTICLE' || result.liveInteraction.cardUrl
       || result.recentGroups < 1 || result.recentLiveLinks !== result.recentGroups
       || !result.opacityValue.endsWith('%') || result.notificationMembers !== 11
       || !result.notificationSummary || !result.notificationPanelOpens || result.bodyLength < 100) {
