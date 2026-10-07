@@ -39,6 +39,37 @@ async function inspectRenderer() {
           previewMessages: document.querySelectorAll('.preview-message').length,
           moreButtons: document.querySelectorAll('.recent-more').length,
           opacityValue: document.querySelector('#window-opacity-value').textContent,
+          notificationVolumeValue: document.querySelector('#notification-volume-value').textContent,
+          notificationSoundTestExists: Boolean(document.querySelector('#notification-sound-test')),
+          unreadRecentUi: (() => {
+            const first = state.recent[0];
+            if (!first) return { available: false };
+            const key = recentKey(first);
+            const originalUnread = new Set(state.unreadRecentKeys);
+            const originalExpanded = state.expandedRecentKey;
+            const storedUnread = localStorage.getItem(RECENT_UNREAD_STORAGE_KEY);
+            const storedKnown = localStorage.getItem(RECENT_KNOWN_STORAGE_KEY);
+            state.unreadRecentKeys.add(key);
+            renderRecent();
+            const unread = {
+              available: true,
+              badge: document.querySelector('#recent-unread-count').textContent,
+              badgeHidden: document.querySelector('#recent-unread-count').hidden,
+              dots: document.querySelectorAll('.recent-unread-dot').length,
+              markAllDisabled: document.querySelector('#recent-mark-all-read').disabled,
+            };
+            document.querySelector('#recent-mark-all-read').click();
+            unread.cleared = document.querySelector('#recent-unread-count').hidden
+              && document.querySelectorAll('.recent-unread-dot').length === 0;
+            state.unreadRecentKeys = originalUnread;
+            state.expandedRecentKey = originalExpanded;
+            if (storedUnread === null) localStorage.removeItem(RECENT_UNREAD_STORAGE_KEY);
+            else localStorage.setItem(RECENT_UNREAD_STORAGE_KEY, storedUnread);
+            if (storedKnown === null) localStorage.removeItem(RECENT_KNOWN_STORAGE_KEY);
+            else localStorage.setItem(RECENT_KNOWN_STORAGE_KEY, storedKnown);
+            renderRecent();
+            return unread;
+          })(),
           notificationMembers: new Set([...document.querySelectorAll('[data-notification-uid]')].map((item) => item.dataset.notificationUid)).size,
           notificationInputs: document.querySelectorAll('[data-notification-uid]').length,
           notificationBulkButtons: document.querySelectorAll('[data-notification-bulk]').length,
@@ -56,6 +87,11 @@ async function inspectRenderer() {
         const expression = process.env.TEST_NOTIFICATION_SETTINGS === '1'
           ? `(async () => {
               const uid = state.streamers[0].uid;
+              const originalVolume = state.settings.notificationVolume;
+              const volumeResult = await window.stelchat.setSetting('notificationVolume', 0.85);
+              if (volumeResult.notificationVolume !== 0.85) {
+                throw new Error('Notification volume update failed');
+              }
               const memberResult = await window.stelchat.setMemberNotification(uid, 'sound', 'chat', true);
               const memberPreference = memberResult.notificationPreferences[uid];
               if (!memberPreference.sound.chat || memberPreference.sound.live
@@ -67,7 +103,8 @@ async function inspectRenderer() {
                 throw new Error('Bulk notification preference update failed');
               }
               const resetResult = await window.stelchat.setAllMemberNotifications(null, null, false);
-              applySettings(resetResult);
+              const restoredResult = await window.stelchat.setSetting('notificationVolume', originalVolume);
+              applySettings(restoredResult);
               return true;
             })()`
           : 'window.stelchat.setAllMemberNotifications(null, null, false).then(applySettings)';
@@ -114,7 +151,11 @@ async function inspectRenderer() {
       || result.liveInteraction.cardTag !== 'ARTICLE' || result.liveInteraction.cardUrl
       || result.recentGroups < 1 || result.recentLiveLinks !== result.recentGroups
       || result.expandedGroups !== 0
-      || !result.opacityValue.endsWith('%') || result.notificationMembers !== 11
+      || !result.opacityValue.endsWith('%') || !result.notificationVolumeValue.endsWith('%')
+      || !result.notificationSoundTestExists || result.notificationMembers !== 11
+      || !result.unreadRecentUi.available || result.unreadRecentUi.badgeHidden
+      || result.unreadRecentUi.dots < 1 || result.unreadRecentUi.markAllDisabled
+      || !result.unreadRecentUi.cleared
       || result.notificationInputs !== 44 || result.notificationBulkButtons !== 4
       || !['running', 'suspended'].includes(result.notificationSoundState)
       || (process.env.EXPECT_DEFAULT_NOTIFICATIONS === '1'

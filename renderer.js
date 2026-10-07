@@ -3,7 +3,11 @@ const state = {
   streamers: [], recent: [], settings: {}, activeTab: 'live',
   expandedRecentKey: '',
   recentPreviews: new Map(), recentPreviewLoading: new Set(),
+  unreadRecentKeys: new Set(), knownRecentIds: new Map(),
 };
+
+const RECENT_UNREAD_STORAGE_KEY = 'stelchat-unread-recent-keys';
+const RECENT_KNOWN_STORAGE_KEY = 'stelchat-known-recent-ids';
 
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value = '') => String(value).replace(/[&<>'"]/g, (character) => ({
@@ -51,6 +55,70 @@ function markHtml(item) {
 
 const recentKey = (item) => `${item.session_id}:${item.target_uid}`;
 
+function loadRecentReadState() {
+  try {
+    const unread = JSON.parse(localStorage.getItem(RECENT_UNREAD_STORAGE_KEY) || '[]');
+    const known = JSON.parse(localStorage.getItem(RECENT_KNOWN_STORAGE_KEY) || '{}');
+    state.unreadRecentKeys = new Set(Array.isArray(unread) ? unread.filter((key) => typeof key === 'string') : []);
+    state.knownRecentIds = new Map(Object.entries(known));
+  } catch {
+    state.unreadRecentKeys = new Set();
+    state.knownRecentIds = new Map();
+  }
+}
+
+function saveRecentReadState() {
+  try {
+    localStorage.setItem(RECENT_UNREAD_STORAGE_KEY, JSON.stringify([...state.unreadRecentKeys]));
+    localStorage.setItem(RECENT_KNOWN_STORAGE_KEY, JSON.stringify(Object.fromEntries(state.knownRecentIds)));
+  } catch {
+    // The unread UI still works for the current app session if local storage is unavailable.
+  }
+}
+
+function recentIsBeingRead(key) {
+  return state.activeTab === 'recent' && state.expandedRecentKey === key
+    && document.visibilityState === 'visible' && document.hasFocus();
+}
+
+function updateUnreadRecentUi() {
+  const visibleKeys = new Set(state.recent.map(recentKey));
+  state.unreadRecentKeys = new Set([...state.unreadRecentKeys].filter((key) => visibleKeys.has(key)));
+  const count = state.unreadRecentKeys.size;
+  const badge = $('#recent-unread-count');
+  badge.textContent = count > 99 ? '99+' : String(count);
+  badge.hidden = count === 0;
+  $('#recent-mark-all-read').disabled = count === 0;
+  $('#recent-mark-all-read').title = count ? `읽지 않은 채팅방 ${count}개 모두 확인` : '읽지 않은 채팅이 없습니다';
+}
+
+function markRecentRead(key) {
+  if (!state.unreadRecentKeys.delete(key)) return;
+  saveRecentReadState();
+  updateUnreadRecentUi();
+}
+
+function markAllRecentRead() {
+  if (!state.unreadRecentKeys.size) return;
+  state.unreadRecentKeys.clear();
+  saveRecentReadState();
+  renderRecent();
+}
+
+function reconcileRecentReadState(items) {
+  const hadBaseline = state.knownRecentIds.size > 0;
+  items.forEach((item) => {
+    const key = recentKey(item);
+    const messageId = String(item.id);
+    const knownId = state.knownRecentIds.get(key);
+    if (hadBaseline && knownId && knownId !== messageId && !recentIsBeingRead(key)) {
+      state.unreadRecentKeys.add(key);
+    }
+    state.knownRecentIds.set(key, messageId);
+  });
+  saveRecentReadState();
+}
+
 function recentPreviewHtml(item) {
   const key = recentKey(item);
   if (state.recentPreviewLoading.has(key)) {
@@ -71,15 +139,16 @@ function recentPreviewHtml(item) {
 
 function renderRecent() {
   $('#recent-list').innerHTML = state.recent.length ? state.recent.map((item) => `
-    <article class="recent-group${state.expandedRecentKey === recentKey(item) ? ' expanded' : ''}" data-key="${recentKey(item)}">
+    <article class="recent-group${state.expandedRecentKey === recentKey(item) ? ' expanded' : ''}${state.unreadRecentKeys.has(recentKey(item)) ? ' unread' : ''}" data-key="${recentKey(item)}">
       <div class="recent-summary" data-key="${recentKey(item)}" role="button" tabindex="0" aria-expanded="${state.expandedRecentKey === recentKey(item)}">
         ${avatar(item, 'target_')}
-        <span class="card-copy"><span class="card-title"><strong>${escapeHtml(item.target_name)}</strong>${item.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}</span><small class="recent-channel-row"><span>${escapeHtml(item.channel_name)}${markHtml(item)}의 방송에서</span><button class="recent-channel-link" data-url="${escapeHtml(liveUrl(item.channel_id))}" type="button" title="CHZZK 라이브 채널 열기" aria-label="${escapeHtml(item.channel_name)} CHZZK 라이브 채널 열기">↗</button></small><b>“${escapeHtml(item.content)}”</b></span>
+        <span class="card-copy"><span class="card-title"><strong>${escapeHtml(item.target_name)}</strong>${state.unreadRecentKeys.has(recentKey(item)) ? '<i class="recent-unread-dot" title="읽지 않은 새 채팅" aria-label="읽지 않은 새 채팅"></i>' : ''}${item.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}</span><small class="recent-channel-row"><span>${escapeHtml(item.channel_name)}${markHtml(item)}의 방송에서</span><button class="recent-channel-link" data-url="${escapeHtml(liveUrl(item.channel_id))}" type="button" title="CHZZK 라이브 채널 열기" aria-label="${escapeHtml(item.channel_name)} CHZZK 라이브 채널 열기">↗</button></small><b>“${escapeHtml(item.content)}”</b></span>
         <span class="recent-meta"><time>${formatDate(item.sent_at)}<br />${formatTime(item.sent_at)}</time><i>⌄</i></span>
       </div>
       ${state.expandedRecentKey === recentKey(item) ? `<div class="recent-preview">${recentPreviewHtml(item)}</div>` : ''}
     </article>`).join('') : `<div class="empty"><span>…</span><strong>최근 채팅이 없습니다</strong></div>`;
   bindRecentControls();
+  updateUnreadRecentUi();
 }
 
 function findRecent(key) {
@@ -89,6 +158,7 @@ function findRecent(key) {
 async function expandRecent(item) {
   const key = recentKey(item);
   state.expandedRecentKey = key;
+  markRecentRead(key);
   renderRecent();
   if (state.recentPreviewLoading.has(key)) return;
   if (state.recentPreviews.has(key) && !state.recentPreviews.get(key).error) return;
@@ -210,11 +280,19 @@ function renderNotificationSettings() {
 
 let notificationAudioContext;
 
-function playNotificationSound(type) {
+async function playNotificationSound(type) {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) return;
   notificationAudioContext ||= new AudioContextClass();
-  void notificationAudioContext.resume();
+  if (notificationAudioContext.state === 'suspended') {
+    try {
+      await notificationAudioContext.resume();
+    } catch {
+      return;
+    }
+  }
+  const volume = Math.min(1, Math.max(0, Number(state.settings.notificationVolume ?? 0.7)));
+  if (volume === 0) return;
   const notes = type === 'live' ? [660, 880] : [760];
   const now = notificationAudioContext.currentTime;
   notes.forEach((frequency, index) => {
@@ -224,7 +302,7 @@ function playNotificationSound(type) {
     oscillator.type = 'sine';
     oscillator.frequency.value = frequency;
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(0.09, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.4 * volume, start + 0.015);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.12);
     oscillator.connect(gain).connect(notificationAudioContext.destination);
     oscillator.start(start);
@@ -242,6 +320,9 @@ function applySettings(settings) {
   const opacityPercent = Math.round((Number(settings.opacity) || 1) * 100);
   $('#window-opacity').value = opacityPercent;
   $('#window-opacity-value').textContent = `${opacityPercent}%`;
+  const notificationVolumePercent = Math.round(Number(settings.notificationVolume ?? 0.7) * 100);
+  $('#notification-volume').value = notificationVolumePercent;
+  $('#notification-volume-value').textContent = `${notificationVolumePercent}%`;
   renderNotificationSettings();
 }
 
@@ -254,6 +335,7 @@ async function load(useRefresh = false, silent = false) {
     const data = useRefresh ? await window.stelchat.refresh() : await window.stelchat.snapshot();
     const streamersChanged = JSON.stringify(state.streamers) !== JSON.stringify(data.streamers);
     const recentChanged = JSON.stringify(state.recent) !== JSON.stringify(data.recent);
+    reconcileRecentReadState(data.recent);
     state.streamers = data.streamers;
     state.recent = data.recent;
     applySettings(data.settings);
@@ -281,6 +363,8 @@ document.querySelectorAll('[data-tab]').forEach((button) => button.addEventListe
   document.querySelectorAll('.panel').forEach((panel) => panel.classList.toggle('active', panel.id === `${state.activeTab}-panel`));
 }));
 
+$('#recent-mark-all-read').addEventListener('click', markAllRecentRead);
+
 $('#refresh-button').addEventListener('click', () => load(true));
 $('#retry-button').addEventListener('click', () => load(true));
 $('#desktop-button').addEventListener('click', async () => applySettings(await window.stelchat.setSetting('desktopMode', !state.settings.desktopMode)));
@@ -292,6 +376,7 @@ $('#notification-settings-open').addEventListener('click', () => { $('#notificat
 $('#notification-settings-back').addEventListener('click', () => { $('#notification-settings-panel').classList.remove('open'); $('#notification-settings-panel').setAttribute('aria-hidden', 'true'); });
 $('#notifications-all-on').addEventListener('click', async () => applySettings(await window.stelchat.setAllMemberNotifications(null, null, true)));
 $('#notifications-all-off').addEventListener('click', async () => applySettings(await window.stelchat.setAllMemberNotifications(null, null, false)));
+$('#notification-sound-test').addEventListener('click', () => playNotificationSound('live'));
 document.querySelectorAll('[data-notification-bulk]').forEach((button) => {
   button.addEventListener('click', async () => {
     const channel = button.dataset.notificationChannel;
@@ -312,6 +397,12 @@ $('#window-opacity').addEventListener('input', async (event) => {
   applySettings(await window.stelchat.setSetting('opacity', opacity));
 });
 
+$('#notification-volume').addEventListener('input', async (event) => {
+  const volume = Number(event.target.value) / 100;
+  $('#notification-volume-value').textContent = `${event.target.value}%`;
+  applySettings(await window.stelchat.setSetting('notificationVolume', volume));
+});
+
 window.stelchat.onConnection(updateConnection);
 window.stelchat.onSettings(applySettings);
 window.stelchat.onNotificationSound(({ type }) => playNotificationSound(type));
@@ -319,6 +410,9 @@ window.stelchat.onEvent(({ eventName, payload }) => {
   if (eventName === 'chat') {
     if (state.recent.some((item) => item.id === payload.id)) return;
     const key = recentKey(payload);
+    state.knownRecentIds.set(key, String(payload.id));
+    if (!recentIsBeingRead(key)) state.unreadRecentKeys.add(key);
+    saveRecentReadState();
     state.recent = [payload, ...state.recent.filter((item) => recentKey(item) !== key)].slice(0, 20);
     const preview = state.recentPreviews.get(key);
     if (preview && !preview.error && !preview.messages.some((message) => message.id === payload.id)) {
@@ -338,8 +432,13 @@ window.stelchat.onEvent(({ eventName, payload }) => {
   }
 });
 
+window.addEventListener('focus', () => {
+  if (state.expandedRecentKey) markRecentRead(state.expandedRecentKey);
+});
+
 setInterval(() => {
   document.querySelectorAll('[data-opened-at]').forEach((element) => { element.textContent = uptime(element.dataset.openedAt); });
 }, 1000);
 setInterval(() => load(true, true), 60000);
+loadRecentReadState();
 load();

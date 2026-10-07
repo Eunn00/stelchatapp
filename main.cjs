@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS = {
   notifications: false,
   notificationMembers: {},
   notificationPreferences: {},
+  notificationVolume: 0.7,
   opacity: 1,
   windowBounds: null,
 };
@@ -64,6 +65,10 @@ function loadSettings() {
     settings = { ...DEFAULT_SETTINGS };
   }
   settings.opacity = Math.min(1, Math.max(0.4, Number(settings.opacity) || 1));
+  const notificationVolume = Number(settings.notificationVolume);
+  settings.notificationVolume = Number.isFinite(notificationVolume)
+    ? Math.min(1, Math.max(0, notificationVolume))
+    : DEFAULT_SETTINGS.notificationVolume;
 }
 
 function saveSettings() {
@@ -261,6 +266,10 @@ function setSetting(key, value) {
     const opacity = Number(value);
     if (!Number.isFinite(opacity)) return settings;
     settings.opacity = Math.min(1, Math.max(0.4, opacity));
+  } else if (key === 'notificationVolume') {
+    const notificationVolume = Number(value);
+    if (!Number.isFinite(notificationVolume)) return settings;
+    settings.notificationVolume = Math.min(1, Math.max(0, notificationVolume));
   } else {
     if (!BOOLEAN_SETTINGS.has(key)) return settings;
     settings[key] = Boolean(value);
@@ -346,6 +355,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
     },
   });
   applyWindowBehavior();
