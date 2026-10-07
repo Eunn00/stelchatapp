@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://stelchat.xyz data:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+    <title>StelChat</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <button class="brand" id="open-site" type="button" aria-label="StelChat 웹사이트 열기">
+        <img src="assets/favicon.svg" alt="" />
+        <span>Stel<strong>Chat</strong></span>
+      </button>
+      <div class="header-actions">
+        <span class="connection" id="connection"><i></i><span>연결 중</span></span>
+        <button class="icon-button" id="desktop-button" type="button" title="바탕화면 모드" aria-label="바탕화면 모드">▣</button>
+        <button class="icon-button" id="settings-button" type="button" title="설정" aria-label="설정">⚙</button>
+      </div>
+    </header>
+
+    <main>
+      <nav class="tabs" aria-label="콘텐츠 선택">
+        <button class="active" data-tab="live" type="button">LIVE <span id="live-count">0</span></button>
+        <button data-tab="recent" type="button">최근 채팅</button>
+        <button class="refresh-button" id="refresh-button" type="button" title="새로고침" aria-label="새로고침">↻</button>
+      </nav>
+
+      <section class="panel active" id="live-panel">
+        <div class="section-copy"><strong>현재 방송</strong><small>방송 중인 멤버를 실시간으로 표시해요.</small></div>
+        <div class="card-list" id="live-list"></div>
+      </section>
+
+      <section class="panel" id="recent-panel">
+        <div class="section-copy"><strong>최근 채팅</strong><small>가장 최근에 수집된 채팅 20개예요.</small></div>
+        <div class="card-list" id="recent-list"></div>
+      </section>
+
+      <section class="settings-panel" id="settings-panel" aria-hidden="true">
+        <div class="settings-head"><div><strong>앱 설정</strong><small>설정은 이 PC에만 저장됩니다.</small></div><button id="settings-close" type="button" aria-label="설정 닫기">×</button></div>
+        <label><span><strong>바탕화면 모드</strong><small>최소화하지 않고 바탕화면 위젯처럼 고정해요.</small></span><input id="desktop-mode" type="checkbox" /></label>
+        <label><span><strong>항상 위에 표시</strong><small>다른 창 위에 미니 앱을 유지해요.</small></span><input id="always-on-top" type="checkbox" /></label>
+        <label class="range-setting"><span><strong>창 투명도</strong><small>내용을 확인할 수 있는 범위에서 창을 투명하게 만들어요.</small></span><span class="range-control"><input id="window-opacity" type="range" min="40" max="100" step="5" value="100" aria-label="창 투명도" /><output id="window-opacity-value" for="window-opacity">100%</output></span></label>
+        <label><span><strong>Windows 시작 시 실행</strong><small>로그인하면 StelChat을 자동으로 열어요.</small></span><input id="launch-at-login" type="checkbox" /></label>
+        <button class="settings-link" id="notification-settings-open" type="button"><span><strong>Windows 알림</strong><small>멤버별 새 채팅과 방송 시작 알림을 설정해요.</small></span><span class="settings-link-status"><small id="notification-summary">모두 꺼짐</small><b>›</b></span></button>
+      </section>
+
+      <section class="settings-panel notification-settings-panel" id="notification-settings-panel" aria-hidden="true">
+        <div class="settings-head notification-settings-head"><button id="notification-settings-back" type="button" aria-label="앱 설정으로 돌아가기">‹</button><div><strong>Windows 알림</strong><small>알림을 받을 멤버를 선택하세요.</small></div></div>
+        <div class="notification-bulk-actions"><button id="notifications-all-on" type="button">모두 켜기</button><button id="notifications-all-off" type="button">모두 끄기</button></div>
+        <div class="notification-member-list" id="notification-member-list"></div>
+      </section>
+
+      <div class="loading" id="loading"><span></span><p>StelChat을 불러오는 중입니다.</p></div>
+      <div class="error" id="error" hidden><strong>연결할 수 없습니다.</strong><p>잠시 후 다시 시도해 주세요.</p><button id="retry-button" type="button">다시 시도</button></div>
+    </main>
+
+    <footer><span>© 2026 stelchat</span><button id="footer-site" type="button">웹사이트 열기 ↗</button></footer>
+    <script src="renderer.js"></script>
+  </body>
+</html>
