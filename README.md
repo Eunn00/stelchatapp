@@ -7,7 +7,7 @@ StelChat의 공개 API와 SSE에 연결되는 Windows 미니 앱입니다. CHZZK
 ## 개발 실행
 
 ```powershell
-cd path\to\stetchatapp
+cd path\to\stelchatapp
 npm install
 npm start
 ```
