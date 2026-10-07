@@ -12,10 +12,11 @@ contextBridge.exposeInMainWorld('stelchat', {
   sessionPreview: (sessionId, targetUid) => ipcRenderer.invoke('session-preview', sessionId, targetUid),
   openUrl: (url) => ipcRenderer.invoke('open-url', url),
   setSetting: (key, value) => ipcRenderer.invoke('set-setting', key, value),
-  setMemberNotification: (uid, value) => ipcRenderer.invoke('set-member-notification', uid, value),
-  setAllMemberNotifications: (value) => ipcRenderer.invoke('set-all-member-notifications', value),
+  setMemberNotification: (uid, channel, eventType, value) => ipcRenderer.invoke('set-member-notification', uid, channel, eventType, value),
+  setAllMemberNotifications: (channel, eventType, value) => ipcRenderer.invoke('set-all-member-notifications', channel, eventType, value),
   hideWindow: () => ipcRenderer.invoke('hide-window'),
   onEvent: (callback) => subscribe('stelchat-event', callback),
   onConnection: (callback) => subscribe('connection', callback),
   onSettings: (callback) => subscribe('settings', callback),
+  onNotificationSound: (callback) => subscribe('notification-sound', callback),
 });

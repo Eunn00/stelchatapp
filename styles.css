@@ -93,17 +93,28 @@ main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .settings-link-status small { font-size: 9px; font-weight: 700; }
 .settings-link-status b { font-size: 20px; font-weight: 400; }
 .notification-settings-panel { z-index: 6; display: flex; flex-direction: column; }
-.notification-settings-head { align-items: center; justify-content: flex-start; gap: 9px; }
+.notification-settings-head { margin-bottom: 12px; align-items: center; justify-content: flex-start; gap: 9px; }
 .notification-settings-head > button { flex: 0 0 auto; font-size: 25px; line-height: 1; }
-.notification-bulk-actions { margin-bottom: 9px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-.notification-bulk-actions button { height: 30px; border: 1px solid rgba(120,140,226,.2); border-radius: 8px; background: white; color: #687bd0; cursor: pointer; font-size: 9px; font-weight: 700; }
-.notification-member-list { min-height: 0; overflow-y: auto; }
-.settings-panel .notification-member { padding: 9px 8px; }
+.notification-bulk-actions { margin-bottom: 7px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.notification-bulk-actions button, .notification-bulk-grid button { border: 1px solid rgba(120,140,226,.3); border-radius: 9px; background: white; color: #5368c4; cursor: pointer; font-size: 10px; font-weight: 800; }
+.notification-bulk-actions button { height: 36px; }
+#notifications-all-on { border-color: #788ce2; background: #788ce2; color: #fff; box-shadow: 0 4px 12px rgba(120,140,226,.2); }
+#notifications-all-off { border-color: rgba(197,88,98,.28); color: #b4515a; }
+.notification-bulk-grid { margin-bottom: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.notification-bulk-grid button { min-height: 42px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 6px; text-align: left; }
+.notification-bulk-grid button small { padding: 3px 5px; border-radius: 5px; background: #f0f2fb; color: #6578cb; font-size: 9px; font-weight: 800; white-space: nowrap; }
+.notification-bulk-grid button.enabled { border-color: rgba(120,140,226,.48); background: rgba(120,140,226,.1); }
+.notification-bulk-grid button.enabled small { background: #788ce2; color: #fff; }
+.notification-member-list { min-height: 0; overflow-y: auto; border-top: 1px solid rgba(70,60,75,.08); }
+.settings-panel .notification-member { padding: 11px 8px 12px; border-bottom: 1px solid rgba(70,60,75,.08); }
+.notification-member-head { display: grid; grid-template-columns: minmax(0,1fr) 54px 42px; align-items: center; }
+.notification-member-head > b { color: #716b75; text-align: center; font-size: 9.5px; font-weight: 800; }
 .notification-member-copy { min-width: 0; display: flex; align-items: center; gap: 10px; }
-.notification-member-copy .avatar { width: 35px; height: 35px; flex: 0 0 35px; font-size: 9px; }
-.notification-member-copy > span:last-child { min-width: 0; }
-.notification-member-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.notification-member-copy small { margin-top: 2px !important; }
+.notification-member-copy .avatar { width: 30px; height: 30px; flex: 0 0 30px; font-size: 8px; }
+.notification-member-copy strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.notification-matrix { margin-top: 7px; display: grid; grid-template-columns: minmax(0,1fr) 54px 42px; align-items: center; row-gap: 7px; }
+.notification-matrix > span { padding-left: 40px; color: #68626b; font-size: 10.5px; font-weight: 650; }
+.settings-panel .notification-matrix input[type="checkbox"] { width: 30px; height: 17px; margin: 0 auto; }
 .loading, .error { position: absolute; inset: 50px 0 0; z-index: 4; display: flex; align-items: center; justify-content: center; flex-direction: column; background: #f6f5f2; color: #918c92; }
 .loading[hidden], .error[hidden] { display: none; }
 .loading span { width: 24px; height: 24px; border: 2px solid #dcd9df; border-top-color: #788ce2; border-radius: 50%; animation: spin .8s linear infinite; }

@@ -1,7 +1,7 @@
 const API_BASE = 'https://stelchat.xyz';
 const state = {
   streamers: [], recent: [], settings: {}, activeTab: 'live',
-  expandedRecentKey: '', recentAutoExpanded: false,
+  expandedRecentKey: '',
   recentPreviews: new Map(), recentPreviewLoading: new Set(),
 };
 
@@ -149,24 +149,86 @@ function render() {
   bindOpenLinks();
 }
 
-function memberNotificationEnabled(uid) {
-  const preferences = state.settings.notificationMembers || {};
-  return Object.hasOwn(preferences, uid) ? Boolean(preferences[uid]) : Boolean(state.settings.notifications);
+function memberNotificationPreference(uid) {
+  const stored = state.settings.notificationPreferences?.[uid];
+  return {
+    desktop: { live: Boolean(stored?.desktop?.live), chat: Boolean(stored?.desktop?.chat) },
+    sound: { live: Boolean(stored?.sound?.live), chat: Boolean(stored?.sound?.chat) },
+  };
+}
+
+function memberNotificationEnabled(uid, channel, eventType) {
+  return Boolean(memberNotificationPreference(uid)[channel][eventType]);
+}
+
+function allNotificationsEnabled(channel, eventType) {
+  return state.streamers.length > 0 && state.streamers.every((member) => (
+    memberNotificationEnabled(member.uid, channel, eventType)
+  ));
 }
 
 function renderNotificationSettings() {
-  const enabledCount = state.streamers.filter((member) => memberNotificationEnabled(member.uid)).length;
-  $('#notification-summary').textContent = enabledCount === 0 ? '모두 꺼짐'
-    : enabledCount === state.streamers.length ? '모두 켜짐' : `${enabledCount}명 켜짐`;
+  const desktopCount = state.streamers.filter((member) => {
+    const preference = memberNotificationPreference(member.uid);
+    return preference.desktop.live || preference.desktop.chat;
+  }).length;
+  const soundCount = state.streamers.filter((member) => {
+    const preference = memberNotificationPreference(member.uid);
+    return preference.sound.live || preference.sound.chat;
+  }).length;
+  $('#notification-summary').textContent = `Windows ${desktopCount}명 · 소리 ${soundCount}명`;
   $('#notification-member-list').innerHTML = state.streamers.map((member) => `
-    <label class="notification-member">
-      <span class="notification-member-copy">${avatar(member)}<span><strong>${escapeHtml(member.name)}</strong><small>방송 시작 · 새 채팅</small></span></span>
-      <input type="checkbox" data-notification-uid="${escapeHtml(member.uid)}" ${memberNotificationEnabled(member.uid) ? 'checked' : ''} />
-    </label>`).join('');
+    <article class="notification-member">
+      <header class="notification-member-head"><span class="notification-member-copy">${avatar(member)}<strong>${escapeHtml(member.name)}</strong></span><b>Windows</b><b>소리</b></header>
+      <div class="notification-matrix">
+        <span>방송 시작</span>
+        <input type="checkbox" aria-label="${escapeHtml(member.name)} 방송 시작 Windows 알림" data-notification-uid="${escapeHtml(member.uid)}" data-notification-channel="desktop" data-notification-event="live" ${memberNotificationEnabled(member.uid, 'desktop', 'live') ? 'checked' : ''} />
+        <input type="checkbox" aria-label="${escapeHtml(member.name)} 방송 시작 소리 알림" data-notification-uid="${escapeHtml(member.uid)}" data-notification-channel="sound" data-notification-event="live" ${memberNotificationEnabled(member.uid, 'sound', 'live') ? 'checked' : ''} />
+        <span>새 채팅</span>
+        <input type="checkbox" aria-label="${escapeHtml(member.name)} 새 채팅 Windows 알림" data-notification-uid="${escapeHtml(member.uid)}" data-notification-channel="desktop" data-notification-event="chat" ${memberNotificationEnabled(member.uid, 'desktop', 'chat') ? 'checked' : ''} />
+        <input type="checkbox" aria-label="${escapeHtml(member.name)} 새 채팅 소리 알림" data-notification-uid="${escapeHtml(member.uid)}" data-notification-channel="sound" data-notification-event="chat" ${memberNotificationEnabled(member.uid, 'sound', 'chat') ? 'checked' : ''} />
+      </div>
+    </article>`).join('');
   document.querySelectorAll('[data-notification-uid]').forEach((input) => {
     input.addEventListener('change', async (event) => {
-      applySettings(await window.stelchat.setMemberNotification(event.target.dataset.notificationUid, event.target.checked));
+      applySettings(await window.stelchat.setMemberNotification(
+        event.target.dataset.notificationUid,
+        event.target.dataset.notificationChannel,
+        event.target.dataset.notificationEvent,
+        event.target.checked,
+      ));
     });
+  });
+  document.querySelectorAll('[data-notification-bulk]').forEach((button) => {
+    const channel = button.dataset.notificationChannel;
+    const eventType = button.dataset.notificationEvent;
+    const enabled = allNotificationsEnabled(channel, eventType);
+    button.classList.toggle('enabled', enabled);
+    button.querySelector('small').textContent = enabled ? '모두 끄기' : '모두 켜기';
+  });
+}
+
+let notificationAudioContext;
+
+function playNotificationSound(type) {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  notificationAudioContext ||= new AudioContextClass();
+  void notificationAudioContext.resume();
+  const notes = type === 'live' ? [660, 880] : [760];
+  const now = notificationAudioContext.currentTime;
+  notes.forEach((frequency, index) => {
+    const start = now + index * 0.14;
+    const oscillator = notificationAudioContext.createOscillator();
+    const gain = notificationAudioContext.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = frequency;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(0.09, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.12);
+    oscillator.connect(gain).connect(notificationAudioContext.destination);
+    oscillator.start(start);
+    oscillator.stop(start + 0.13);
   });
 }
 
@@ -199,10 +261,6 @@ async function load(useRefresh = false, silent = false) {
     if (!silent || streamersChanged) renderLive();
     if (!silent || recentChanged) renderRecent();
     if (!silent || streamersChanged || recentChanged) bindOpenLinks();
-    if (!state.recentAutoExpanded && state.recent[0]) {
-      state.recentAutoExpanded = true;
-      void expandRecent(state.recent[0]);
-    }
   } catch {
     if (!silent) $('#error').hidden = false;
   } finally {
@@ -232,8 +290,17 @@ $('#settings-button').addEventListener('click', () => { $('#settings-panel').cla
 $('#settings-close').addEventListener('click', () => { $('#notification-settings-panel').classList.remove('open'); $('#notification-settings-panel').setAttribute('aria-hidden', 'true'); $('#settings-panel').classList.remove('open'); $('#settings-panel').setAttribute('aria-hidden', 'true'); });
 $('#notification-settings-open').addEventListener('click', () => { $('#notification-settings-panel').classList.add('open'); $('#notification-settings-panel').setAttribute('aria-hidden', 'false'); });
 $('#notification-settings-back').addEventListener('click', () => { $('#notification-settings-panel').classList.remove('open'); $('#notification-settings-panel').setAttribute('aria-hidden', 'true'); });
-$('#notifications-all-on').addEventListener('click', async () => applySettings(await window.stelchat.setAllMemberNotifications(true)));
-$('#notifications-all-off').addEventListener('click', async () => applySettings(await window.stelchat.setAllMemberNotifications(false)));
+$('#notifications-all-on').addEventListener('click', async () => applySettings(await window.stelchat.setAllMemberNotifications(null, null, true)));
+$('#notifications-all-off').addEventListener('click', async () => applySettings(await window.stelchat.setAllMemberNotifications(null, null, false)));
+document.querySelectorAll('[data-notification-bulk]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const channel = button.dataset.notificationChannel;
+    const eventType = button.dataset.notificationEvent;
+    applySettings(await window.stelchat.setAllMemberNotifications(
+      channel, eventType, !allNotificationsEnabled(channel, eventType),
+    ));
+  });
+});
 
 for (const [id, key] of [['desktop-mode', 'desktopMode'], ['always-on-top', 'alwaysOnTop'], ['launch-at-login', 'launchAtLogin']]) {
   $(`#${id}`).addEventListener('change', async (event) => applySettings(await window.stelchat.setSetting(key, event.target.checked)));
@@ -247,6 +314,7 @@ $('#window-opacity').addEventListener('input', async (event) => {
 
 window.stelchat.onConnection(updateConnection);
 window.stelchat.onSettings(applySettings);
+window.stelchat.onNotificationSound(({ type }) => playNotificationSound(type));
 window.stelchat.onEvent(({ eventName, payload }) => {
   if (eventName === 'chat') {
     if (state.recent.some((item) => item.id === payload.id)) return;

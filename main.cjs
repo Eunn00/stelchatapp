@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, shell, Tray } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
+const { liveSessionKey, notificationEventType } = require('./notification-policy.cjs');
 
 const API_BASE = 'https://stelchat.xyz';
 const DEFAULT_SETTINGS = {
@@ -9,6 +10,7 @@ const DEFAULT_SETTINGS = {
   launchAtLogin: false,
   notifications: false,
   notificationMembers: {},
+  notificationPreferences: {},
   opacity: 1,
   windowBounds: null,
 };
@@ -24,6 +26,32 @@ let lastEventId = '';
 let connectionStatus = { connected: false, state: 'connecting' };
 let boundsSaveTimer;
 let streamerByUid = new Map();
+let notificationBaselineReady = false;
+let startupLiveSessions = new Set();
+
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
+const NOTIFICATION_CHANNELS = new Set(['desktop', 'sound']);
+const NOTIFICATION_EVENTS = new Set(['live', 'chat']);
+
+function defaultNotificationPreference() {
+  return { desktop: { live: false, chat: false }, sound: { live: false, chat: false } };
+}
+
+function normalizedNotificationPreference(value) {
+  const fallback = defaultNotificationPreference();
+  if (!value || typeof value !== 'object') return fallback;
+  return {
+    desktop: {
+      live: typeof value.desktop?.live === 'boolean' ? value.desktop.live : fallback.desktop.live,
+      chat: typeof value.desktop?.chat === 'boolean' ? value.desktop.chat : fallback.desktop.chat,
+    },
+    sound: {
+      live: Boolean(value.sound?.live),
+      chat: Boolean(value.sound?.chat),
+    },
+  };
+}
 
 function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json');
@@ -82,16 +110,21 @@ async function snapshot() {
     fetchJson('/api/recent?limit=20'),
   ]);
   streamerByUid = new Map(streamers.map((streamer) => [streamer.uid, streamer]));
-  const notificationMembers = { ...(settings.notificationMembers || {}) };
+  if (!notificationBaselineReady) {
+    startupLiveSessions = new Set(streamers
+      .filter((streamer) => streamer.is_live)
+      .map((streamer) => liveSessionKey(streamer.uid, streamer.live_opened_at)));
+    notificationBaselineReady = true;
+  }
+  const notificationPreferences = { ...(settings.notificationPreferences || {}) };
   let migrated = false;
   for (const streamer of streamers) {
-    if (!Object.hasOwn(notificationMembers, streamer.uid)) {
-      notificationMembers[streamer.uid] = Boolean(settings.notifications);
-      migrated = true;
-    }
+    const normalized = normalizedNotificationPreference(notificationPreferences[streamer.uid]);
+    if (JSON.stringify(notificationPreferences[streamer.uid]) !== JSON.stringify(normalized)) migrated = true;
+    notificationPreferences[streamer.uid] = normalized;
   }
   if (migrated) {
-    settings.notificationMembers = notificationMembers;
+    settings.notificationPreferences = notificationPreferences;
     saveSettings();
   }
   return { streamers, recent, settings, connection: connectionStatus };
@@ -106,25 +139,29 @@ function updateConnection(status) {
   sendToRenderer('connection', status);
 }
 
-function showNativeNotification(eventName, payload) {
-  if (!Notification.isSupported()) return;
-  const liveMember = eventName === 'session' && payload.status === 'OPEN'
-    ? streamerByUid.get(payload.channel_id) : null;
-  if (eventName !== 'chat' && !liveMember) return;
+function dispatchNotification(eventName, payload) {
+  const notificationEvent = notificationEventType(
+    eventName, payload, notificationBaselineReady, startupLiveSessions,
+  );
+  if (!notificationEvent) return;
+  const liveMember = notificationEvent === 'live' ? streamerByUid.get(payload.channel_id) : null;
+  if (notificationEvent === 'live' && !liveMember) return;
   const targetUid = eventName === 'chat' ? payload.target_uid : liveMember.uid;
-  const memberPreferences = settings.notificationMembers || {};
-  const enabled = Object.hasOwn(memberPreferences, targetUid)
-    ? Boolean(memberPreferences[targetUid]) : Boolean(settings.notifications);
-  if (!enabled) return;
+  const preference = normalizedNotificationPreference(settings.notificationPreferences?.[targetUid]);
   const targetName = eventName === 'chat' ? (payload.target_name || '멤버') : liveMember.name;
   const targetInitials = eventName === 'chat' ? payload.target_initials : liveMember.initials;
-  const notification = new Notification({
-    title: liveMember ? `${targetName} 방송 시작` : `${targetName}의 새 채팅`,
-    body: liveMember ? (payload.title || '방송을 시작했어요.') : `${payload.channel_name || '채팅방'} · ${payload.content || ''}`,
-    silent: true,
-  });
-  notification.on('click', () => shell.openExternal(memberUrl(targetInitials)));
-  notification.show();
+  if (preference.desktop[notificationEvent] && Notification.isSupported()) {
+    const notification = new Notification({
+      title: liveMember ? `${targetName} 방송 시작` : `${targetName}의 새 채팅`,
+      body: liveMember ? (payload.title || '방송을 시작했어요.') : `${payload.channel_name || '채팅방'} · ${payload.content || ''}`,
+      silent: true,
+    });
+    notification.on('click', () => shell.openExternal(memberUrl(targetInitials)));
+    notification.show();
+  }
+  if (preference.sound[notificationEvent]) {
+    sendToRenderer('notification-sound', { type: notificationEvent });
+  }
 }
 
 function parseSseBlock(block) {
@@ -170,7 +207,7 @@ async function connectEvents() {
           if (!event) continue;
           if (event.eventId) lastEventId = event.eventId;
           sendToRenderer('stelchat-event', event);
-          showNativeNotification(event.eventName, event.payload);
+          dispatchNotification(event.eventName, event.payload);
         } catch (error) {
           console.warn('Ignored malformed SSE event:', error.message);
         }
@@ -243,19 +280,48 @@ function setSetting(key, value) {
   return settings;
 }
 
-function setMemberNotification(uid, value) {
-  if (typeof uid !== 'string' || !streamerByUid.has(uid)) return settings;
-  settings.notificationMembers = { ...(settings.notificationMembers || {}), [uid]: Boolean(value) };
-  settings.notifications = [...streamerByUid.keys()].some((memberUid) => Boolean(settings.notificationMembers[memberUid]));
+function setMemberNotification(uid, channel, eventType, value) {
+  if (typeof uid !== 'string' || !streamerByUid.has(uid)
+      || !NOTIFICATION_CHANNELS.has(channel) || !NOTIFICATION_EVENTS.has(eventType)) return settings;
+  const notificationPreferences = { ...(settings.notificationPreferences || {}) };
+  const current = normalizedNotificationPreference(notificationPreferences[uid]);
+  notificationPreferences[uid] = {
+    ...current,
+    [channel]: { ...current[channel], [eventType]: Boolean(value) },
+  };
+  settings.notificationPreferences = notificationPreferences;
+  settings.notificationMembers = {
+    ...(settings.notificationMembers || {}),
+    [uid]: notificationPreferences[uid].desktop.live || notificationPreferences[uid].desktop.chat,
+  };
+  settings.notifications = [...streamerByUid.keys()].some((memberUid) => {
+    const preference = normalizedNotificationPreference(notificationPreferences[memberUid]);
+    return preference.desktop.live || preference.desktop.chat;
+  });
   saveSettings();
   sendToRenderer('settings', settings);
   return settings;
 }
 
-function setAllMemberNotifications(value) {
+function setAllMemberNotifications(channel, eventType, value) {
+  if (channel != null && !NOTIFICATION_CHANNELS.has(channel)) return settings;
+  if (eventType != null && !NOTIFICATION_EVENTS.has(eventType)) return settings;
   const enabled = Boolean(value);
-  settings.notificationMembers = Object.fromEntries([...streamerByUid.keys()].map((uid) => [uid, enabled]));
-  settings.notifications = enabled;
+  const notificationPreferences = { ...(settings.notificationPreferences || {}) };
+  for (const uid of streamerByUid.keys()) {
+    const current = normalizedNotificationPreference(notificationPreferences[uid]);
+    for (const targetChannel of channel ? [channel] : NOTIFICATION_CHANNELS) {
+      for (const targetEvent of eventType ? [eventType] : NOTIFICATION_EVENTS) {
+        current[targetChannel][targetEvent] = enabled;
+      }
+    }
+    notificationPreferences[uid] = current;
+  }
+  settings.notificationPreferences = notificationPreferences;
+  settings.notificationMembers = Object.fromEntries([...streamerByUid.keys()].map((uid) => [
+    uid, notificationPreferences[uid].desktop.live || notificationPreferences[uid].desktop.chat,
+  ]));
+  settings.notifications = [...streamerByUid.keys()].some((uid) => settings.notificationMembers[uid]);
   saveSettings();
   sendToRenderer('settings', settings);
   return settings;
@@ -355,6 +421,6 @@ ipcMain.handle('open-url', (_event, url) => {
   if (externalUrl) shell.openExternal(externalUrl);
 });
 ipcMain.handle('set-setting', (_event, key, value) => setSetting(key, value));
-ipcMain.handle('set-member-notification', (_event, uid, value) => setMemberNotification(uid, value));
-ipcMain.handle('set-all-member-notifications', (_event, value) => setAllMemberNotifications(value));
+ipcMain.handle('set-member-notification', (_event, uid, channel, eventType, value) => setMemberNotification(uid, channel, eventType, value));
+ipcMain.handle('set-all-member-notifications', (_event, channel, eventType, value) => setAllMemberNotifications(channel, eventType, value));
 ipcMain.handle('hide-window', () => mainWindow?.hide());
