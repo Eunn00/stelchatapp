@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { liveSessionKey, notificationEventType } = require('./notification-policy.cjs');
+const {
+  chatRoomIsMuted, chatRoomKey, liveSessionKey, notificationEventType,
+} = require('./notification-policy.cjs');
 
 const existingLive = new Set([liveSessionKey('member-a', '2026-10-07T10:00:00+09:00')]);
 
@@ -32,4 +34,18 @@ test('a real transition to a new live session notifies', () => {
 
 test('new chat events notify after the baseline is ready', () => {
   assert.equal(notificationEventType('chat', {}, true, existingLive), 'chat');
+});
+
+test('chat room keys separate sessions and members', () => {
+  assert.equal(chatRoomKey(42, 'member-a'), '42:member-a');
+  assert.notEqual(chatRoomKey(42, 'member-a'), chatRoomKey(43, 'member-a'));
+  assert.notEqual(chatRoomKey(42, 'member-a'), chatRoomKey(42, 'member-b'));
+  assert.equal(chatRoomKey('invalid', 'member-a'), '');
+});
+
+test('only the selected chat room is muted', () => {
+  const muted = { [chatRoomKey(42, 'member-a')]: 1 };
+  assert.equal(chatRoomIsMuted({ session_id: 42, target_uid: 'member-a' }, muted), true);
+  assert.equal(chatRoomIsMuted({ session_id: 43, target_uid: 'member-a' }, muted), false);
+  assert.equal(chatRoomIsMuted({ session_id: 42, target_uid: 'member-b' }, muted), false);
 });

@@ -54,6 +54,7 @@ function markHtml(item) {
 }
 
 const recentKey = (item) => `${item.session_id}:${item.target_uid}`;
+const recentNotificationMuted = (item) => Boolean(state.settings.mutedChatRooms?.[recentKey(item)]);
 
 function loadRecentReadState() {
   try {
@@ -143,7 +144,7 @@ function renderRecent() {
       <div class="recent-summary" data-key="${recentKey(item)}" role="button" tabindex="0" aria-expanded="${state.expandedRecentKey === recentKey(item)}">
         ${avatar(item, 'target_')}
         <span class="card-copy"><span class="card-title"><strong>${escapeHtml(item.target_name)}</strong>${state.unreadRecentKeys.has(recentKey(item)) ? '<i class="recent-unread-dot" title="읽지 않은 새 채팅" aria-label="읽지 않은 새 채팅"></i>' : ''}${item.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}</span><small class="recent-channel-row"><span>${escapeHtml(item.channel_name)}${markHtml(item)}의 방송에서</span><button class="recent-channel-link" data-url="${escapeHtml(liveUrl(item.channel_id))}" type="button" title="CHZZK 라이브 채널 열기" aria-label="${escapeHtml(item.channel_name)} CHZZK 라이브 채널 열기">↗</button></small><b>“${escapeHtml(item.content)}”</b></span>
-        <span class="recent-meta"><time>${formatDate(item.sent_at)}<br />${formatTime(item.sent_at)}</time><i>⌄</i></span>
+        <span class="recent-meta"><button class="recent-notification-button${recentNotificationMuted(item) ? ' muted' : ''}" data-session-id="${escapeHtml(item.session_id)}" data-target-uid="${escapeHtml(item.target_uid)}" type="button" title="${recentNotificationMuted(item) ? '알림 켜기' : '알림 끄기'}" aria-label="${escapeHtml(item.target_name)} ${recentNotificationMuted(item) ? '채팅방 알림 켜기' : '채팅방 알림 끄기'}">${recentNotificationMuted(item) ? '🔕' : '🔔'}</button><time>${formatDate(item.sent_at)}<br />${formatTime(item.sent_at)}</time><i>⌄</i></span>
       </div>
       ${state.expandedRecentKey === recentKey(item) ? `<div class="recent-preview">${recentPreviewHtml(item)}</div>` : ''}
     </article>`).join('') : `<div class="empty"><span>…</span><strong>최근 채팅이 없습니다</strong></div>`;
@@ -204,6 +205,17 @@ function bindRecentControls() {
   });
   document.querySelectorAll('.recent-more').forEach((element) => {
     element.addEventListener('click', () => window.stelchat.openUrl(element.dataset.url));
+  });
+  document.querySelectorAll('.recent-notification-button').forEach((element) => {
+    element.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const item = findRecent(`${element.dataset.sessionId}:${element.dataset.targetUid}`);
+      if (!item) return;
+      applySettings(await window.stelchat.setChatRoomMuted(
+        item.session_id, item.target_uid, !recentNotificationMuted(item),
+      ));
+      renderRecent();
+    });
   });
 }
 

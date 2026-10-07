@@ -1,7 +1,9 @@
 const { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, shell, Tray } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
-const { liveSessionKey, notificationEventType } = require('./notification-policy.cjs');
+const {
+  chatRoomIsMuted, chatRoomKey, liveSessionKey, notificationEventType,
+} = require('./notification-policy.cjs');
 
 const API_BASE = 'https://stelchat.xyz';
 const DEFAULT_SETTINGS = {
@@ -11,6 +13,7 @@ const DEFAULT_SETTINGS = {
   notifications: false,
   notificationMembers: {},
   notificationPreferences: {},
+  mutedChatRooms: {},
   notificationVolume: 0.7,
   opacity: 1,
   windowBounds: null,
@@ -54,6 +57,14 @@ function normalizedNotificationPreference(value) {
   };
 }
 
+function normalizedMutedChatRooms(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key, mutedAt]) => /^\d+:.+/.test(key) && Number.isFinite(Number(mutedAt)))
+    .sort((left, right) => Number(right[1]) - Number(left[1]))
+    .slice(0, 500));
+}
+
 function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json');
 }
@@ -69,6 +80,7 @@ function loadSettings() {
   settings.notificationVolume = Number.isFinite(notificationVolume)
     ? Math.min(1, Math.max(0, notificationVolume))
     : DEFAULT_SETTINGS.notificationVolume;
+  settings.mutedChatRooms = normalizedMutedChatRooms(settings.mutedChatRooms);
 }
 
 function saveSettings() {
@@ -152,6 +164,7 @@ function dispatchNotification(eventName, payload) {
   const liveMember = notificationEvent === 'live' ? streamerByUid.get(payload.channel_id) : null;
   if (notificationEvent === 'live' && !liveMember) return;
   const targetUid = eventName === 'chat' ? payload.target_uid : liveMember.uid;
+  if (notificationEvent === 'chat' && chatRoomIsMuted(payload, settings.mutedChatRooms)) return;
   const preference = normalizedNotificationPreference(settings.notificationPreferences?.[targetUid]);
   const targetName = eventName === 'chat' ? (payload.target_name || '멤버') : liveMember.name;
   const targetInitials = eventName === 'chat' ? payload.target_initials : liveMember.initials;
@@ -336,6 +349,18 @@ function setAllMemberNotifications(channel, eventType, value) {
   return settings;
 }
 
+function setChatRoomMuted(sessionId, targetUid, muted) {
+  const key = chatRoomKey(sessionId, targetUid);
+  if (!key || !streamerByUid.has(targetUid)) return settings;
+  const mutedChatRooms = { ...normalizedMutedChatRooms(settings.mutedChatRooms) };
+  if (muted) mutedChatRooms[key] = Date.now();
+  else delete mutedChatRooms[key];
+  settings.mutedChatRooms = normalizedMutedChatRooms(mutedChatRooms);
+  saveSettings();
+  sendToRenderer('settings', settings);
+  return settings;
+}
+
 function createWindow() {
   const savedBounds = settings.windowBounds && Number.isFinite(settings.windowBounds.x)
     && Number.isFinite(settings.windowBounds.y) ? settings.windowBounds : {};
@@ -433,4 +458,5 @@ ipcMain.handle('open-url', (_event, url) => {
 ipcMain.handle('set-setting', (_event, key, value) => setSetting(key, value));
 ipcMain.handle('set-member-notification', (_event, uid, channel, eventType, value) => setMemberNotification(uid, channel, eventType, value));
 ipcMain.handle('set-all-member-notifications', (_event, channel, eventType, value) => setAllMemberNotifications(channel, eventType, value));
+ipcMain.handle('set-chat-room-muted', (_event, sessionId, targetUid, muted) => setChatRoomMuted(sessionId, targetUid, muted));
 ipcMain.handle('hide-window', () => mainWindow?.hide());

@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('stelchat', {
   setSetting: (key, value) => ipcRenderer.invoke('set-setting', key, value),
   setMemberNotification: (uid, channel, eventType, value) => ipcRenderer.invoke('set-member-notification', uid, channel, eventType, value),
   setAllMemberNotifications: (channel, eventType, value) => ipcRenderer.invoke('set-all-member-notifications', channel, eventType, value),
+  setChatRoomMuted: (sessionId, targetUid, muted) => ipcRenderer.invoke('set-chat-room-muted', sessionId, targetUid, muted),
   hideWindow: () => ipcRenderer.invoke('hide-window'),
   onEvent: (callback) => subscribe('stelchat-event', callback),
   onConnection: (callback) => subscribe('connection', callback),
