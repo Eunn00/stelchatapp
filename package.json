@@ -1,6 +1,6 @@
 {
   "name": "stelchat-desktop",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "StelChat Windows companion",
   "main": "main.cjs",
   "author": "StelChat",
@@ -32,6 +32,7 @@
       "renderer.js",
       "index.html",
       "styles.css",
+      "THIRD_PARTY_NOTICES.md",
       "assets/**/*"
     ],
     "win": {

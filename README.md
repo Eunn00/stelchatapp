@@ -24,6 +24,10 @@ npm run dist
 
 결과는 `release/StelChat-<version>-portable.exe`에 생성됩니다. 현재 실행 파일은 코드 서명이 없으므로 다른 PC에서는 Windows SmartScreen 경고가 표시될 수 있습니다.
 
+## 오픈소스 라이선스
+
+앱에 포함되거나 빌드에 사용되는 오픈소스 구성 요소와 라이선스 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에서 확인할 수 있습니다. Electron이 제공하는 `LICENSE.electron.txt`와 `LICENSES.chromium.html`도 배포 파일에 포함됩니다.
+
 ## 설치 프로그램 생성
 
 ```powershell
