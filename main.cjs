@@ -8,6 +8,7 @@ const {
 const API_BASE = 'https://stelchat.xyz';
 const DEFAULT_SETTINGS = {
   alwaysOnTop: false,
+  darkMode: false,
   desktopMode: false,
   launchAtLogin: false,
   notifications: false,
@@ -18,7 +19,7 @@ const DEFAULT_SETTINGS = {
   opacity: 1,
   windowBounds: null,
 };
-const BOOLEAN_SETTINGS = new Set(['alwaysOnTop', 'desktopMode', 'launchAtLogin', 'notifications']);
+const BOOLEAN_SETTINGS = new Set(['alwaysOnTop', 'darkMode', 'desktopMode', 'launchAtLogin', 'notifications']);
 
 let mainWindow;
 let tray;
@@ -253,6 +254,7 @@ function applyWindowBehavior() {
   mainWindow.setMinimizable(!desktopMode);
   mainWindow.setVisibleOnAllWorkspaces(desktopMode, { visibleOnFullScreen: false });
   mainWindow.setOpacity(settings.opacity);
+  mainWindow.setBackgroundColor(settings.darkMode ? '#17181d' : '#f6f5f2');
 }
 
 function updateTrayMenu() {
@@ -444,6 +446,12 @@ app.on('before-quit', () => {
 
 ipcMain.handle('snapshot', snapshot);
 ipcMain.handle('refresh', snapshot);
+ipcMain.handle('member-sessions', (_event, uid) => {
+  if (typeof uid !== 'string' || !streamerByUid.has(uid)) {
+    throw new Error('Invalid member sessions request');
+  }
+  return fetchJson(`/api/streamers/${encodeURIComponent(uid)}/sessions?limit=50`);
+});
 ipcMain.handle('session-preview', (_event, sessionId, targetUid) => {
   const numericSessionId = Number(sessionId);
   if (!Number.isInteger(numericSessionId) || numericSessionId < 1 || typeof targetUid !== 'string' || !targetUid) {

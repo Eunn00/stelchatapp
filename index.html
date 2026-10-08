@@ -23,13 +23,23 @@
     <main>
       <nav class="tabs" aria-label="콘텐츠 선택">
         <button class="active" data-tab="live" type="button">LIVE <span id="live-count">0</span></button>
-        <button data-tab="recent" type="button">최근 채팅 <span class="unread-count" id="recent-unread-count" hidden>0</span></button>
+        <button data-tab="member" type="button">멤버별 채팅</button>
+        <button data-tab="recent" type="button">최근 채팅 <span class="unread-count" id="recent-unread-count" aria-label="읽지 않은 채팅 있음" hidden></span></button>
         <button class="refresh-button" id="refresh-button" type="button" title="새로고침" aria-label="새로고침">↻</button>
       </nav>
 
       <section class="panel active" id="live-panel">
         <div class="section-copy"><strong>현재 방송</strong><small>방송 중인 멤버를 실시간으로 표시해요.</small></div>
         <div class="card-list" id="live-list"></div>
+      </section>
+
+      <section class="panel" id="member-panel">
+        <div class="member-chat-toolbar">
+          <label for="member-chat-select">멤버 선택</label>
+          <select id="member-chat-select" aria-label="채팅 기록을 볼 멤버 선택"></select>
+        </div>
+        <div class="section-copy member-section-copy"><strong id="member-chat-heading">멤버별 채팅</strong><small>선택한 멤버의 최근 채팅방 50개예요.</small></div>
+        <div class="card-list" id="member-chat-list"></div>
       </section>
 
       <section class="panel" id="recent-panel">
@@ -41,6 +51,7 @@
         <div class="settings-head"><div><strong>앱 설정</strong><small>설정은 이 PC에만 저장됩니다.</small></div><button id="settings-close" type="button" aria-label="설정 닫기">×</button></div>
         <label><span><strong>바탕화면 모드</strong><small>최소화하지 않고 바탕화면 위젯처럼 고정해요.</small></span><input id="desktop-mode" type="checkbox" /></label>
         <label><span><strong>항상 위에 표시</strong><small>다른 창 위에 미니 앱을 유지해요.</small></span><input id="always-on-top" type="checkbox" /></label>
+        <label><span><strong>다크 모드</strong><small>어두운 환경에 맞는 색상으로 앱을 표시해요.</small></span><input id="dark-mode" type="checkbox" /></label>
         <label class="range-setting"><span><strong>창 투명도</strong><small>내용을 확인할 수 있는 범위에서 창을 투명하게 만들어요.</small></span><span class="range-control"><input id="window-opacity" type="range" min="40" max="100" step="5" value="100" aria-label="창 투명도" /><output id="window-opacity-value" for="window-opacity">100%</output></span></label>
         <label><span><strong>Windows 시작 시 실행</strong><small>로그인하면 StelChat을 자동으로 열어요.</small></span><input id="launch-at-login" type="checkbox" /></label>
         <button class="settings-link" id="notification-settings-open" type="button"><span><strong>알림 설정</strong><small>방송 시작과 새 채팅의 Windows·소리 알림을 설정해요.</small></span><span class="settings-link-status"><small id="notification-summary">Windows 0명 · 소리 0명</small><b>›</b></span></button>

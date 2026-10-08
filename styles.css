@@ -1,7 +1,7 @@
 :root { font-family: Inter, Pretendard, "Segoe UI", sans-serif; color: #2c2930; background: #f6f5f2; font-synthesis: none; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 340px; min-height: 100vh; background: radial-gradient(circle at 80% 0, rgba(120,140,226,.14), transparent 34%), #f6f5f2; overflow: hidden; }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { color: inherit; }
 .app-header { height: 58px; padding: 0 14px 0 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(60,55,70,.09); background: rgba(255,255,255,.78); backdrop-filter: blur(18px); }
 .brand { padding: 0; display: flex; align-items: center; gap: 9px; border: 0; background: none; cursor: pointer; font-size: 18px; font-weight: 750; letter-spacing: -.7px; }
@@ -22,7 +22,8 @@ main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .tabs button { height: 34px; padding: 0 11px; border: 0; border-radius: 9px; background: transparent; color: #969197; cursor: pointer; font-size: 12px; font-weight: 750; }
 .tabs button.active { background: white; color: #5f71c5; box-shadow: 0 3px 14px rgba(56,48,70,.07); }
 .tabs button span { min-width: 18px; height: 18px; margin-left: 3px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: #ed5d65; color: white; font-size: 9px; }
-.tabs .unread-count { min-width: 17px; height: 17px; margin-left: 4px; padding: 0 5px; font-size: 8.5px; }
+#live-count { background: #788ce2; }
+.tabs .unread-count { min-width: 0; width: 7px; height: 7px; margin-left: 5px; padding: 0; box-shadow: 0 0 0 3px rgba(237,93,101,.1); }
 .tabs .unread-count[hidden] { display: none; }
 .tabs .refresh-button { width: 34px; margin-left: auto; padding: 0; font-size: 20px; font-weight: 400; }
 .panel { display: none; height: calc(100% - 50px); padding: 10px 12px 12px; overflow-y: auto; }
@@ -33,6 +34,15 @@ main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .recent-section-title { display: flex; align-items: center; gap: 7px; }
 .recent-section-title #recent-mark-all-read { padding: 2px 6px; border: 0; border-radius: 5px; background: rgba(120,140,226,.12); color: #6074cc; cursor: pointer; font-size: 8px; font-weight: 750; }
 .recent-section-title #recent-mark-all-read:disabled { background: rgba(90,82,94,.06); color: #aaa5aa; cursor: default; }
+.member-chat-toolbar { margin: 0 4px 8px; padding: 9px 10px; display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 10px; border: 1px solid rgba(120,140,226,.18); border-radius: 11px; background: rgba(255,255,255,.68); }
+.member-chat-toolbar label { color: #716b75; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.member-chat-toolbar select { width: 100%; height: 31px; padding: 0 30px 0 10px; border: 1px solid rgba(120,140,226,.28); border-radius: 8px; outline: 0; background: white; color: #413d45; cursor: pointer; font-size: 11px; font-weight: 700; }
+.member-chat-toolbar select:focus { border-color: #788ce2; box-shadow: 0 0 0 3px rgba(120,140,226,.1); }
+.member-section-copy { padding-top: 2px; }
+.member-chat-state { min-height: 180px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 9px; color: #99949a; font-size: 10px; }
+.member-chat-state > span { width: 20px; height: 20px; border: 2px solid #dedbe1; border-top-color: #788ce2; border-radius: 50%; animation: spin .8s linear infinite; }
+.member-chat-state.error-copy { color: #b65f67; }
+.member-chat-state button { height: 29px; padding: 0 10px; border: 0; border-radius: 7px; background: #788ce2; color: white; cursor: pointer; font-size: 9px; font-weight: 800; }
 .card-list { display: grid; gap: 8px; }
 .live-card { width: 100%; padding: 12px; display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 11px; text-align: left; border: 1px solid rgba(61,54,67,.09); border-radius: 14px; background: rgba(255,255,255,.92); box-shadow: 0 3px 12px rgba(55,48,67,.035); transition: .18s ease; }
 .live-card:hover { transform: translateY(-1px); border-color: rgba(120,140,226,.35); box-shadow: 0 8px 22px rgba(55,48,67,.08); }
@@ -45,6 +55,11 @@ main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .recent-meta time { grid-column: 1; grid-row: 2; }
 .recent-meta i { grid-column: 2; grid-row: 1 / 3; color: #9d9aa1; font-size: 14px; font-style: normal; transition: transform .18s ease; }
 .recent-group.expanded .recent-meta i { transform: rotate(180deg); }
+.member-session-meta { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; align-items: center; column-gap: 6px; row-gap: 2px; color: #8f8991; text-align: right; font-size: 9px; font-variant-numeric: tabular-nums; }
+.member-session-meta small { grid-column: 1; grid-row: 1; color: #7283d0; font-size: 8px; font-weight: 800; }
+.member-session-meta time { grid-column: 1; grid-row: 2; }
+.member-session-meta i { grid-column: 2; grid-row: 1 / 3; color: #9d9aa1; font-size: 14px; font-style: normal; transition: transform .18s ease; }
+.member-session-group.expanded .member-session-meta i { transform: rotate(180deg); }
 .recent-unread-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #ed5d65; box-shadow: 0 0 0 3px rgba(237,93,101,.1); }
 .recent-preview { margin: 0 11px 11px 64px; padding: 8px 0 0; border-top: 1px solid rgba(70,60,75,.08); }
 .preview-message { min-height: 28px; padding: 6px 2px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; border-bottom: 1px solid rgba(70,60,75,.055); font-size: 11px; line-height: 1.45; }
@@ -54,9 +69,11 @@ main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .recent-preview-state { min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 7px; color: #9b969d; font-size: 10px; }
 .recent-preview-state span { width: 12px; height: 12px; border: 2px solid #dedbe1; border-top-color: #788ce2; border-radius: 50%; animation: spin .8s linear infinite; }
 .recent-preview-state.error-copy { color: #c16b70; }
-.recent-notification-button { grid-column: 1; grid-row: 1; width: 23px; height: 23px; margin-left: auto; padding: 0; display: inline-grid; place-items: center; border: 0; border-radius: 6px; background: rgba(120,140,226,.09); cursor: pointer; font-family: "Segoe UI Emoji", sans-serif; font-size: 12px; line-height: 1; }
-.recent-notification-button:hover { background: rgba(120,140,226,.18); }
-.recent-notification-button.muted { background: rgba(226,91,101,.09); }
+.recent-notification-button { grid-column: 1; grid-row: 1; width: 23px; height: 23px; margin-left: auto; padding: 0; display: inline-grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #858088; cursor: pointer; }
+.recent-notification-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.recent-notification-button:hover { background: rgba(120,140,226,.11); color: #6074ca; }
+.recent-notification-button.muted { color: #b75860; }
+.recent-notification-button.muted:hover { background: rgba(226,91,101,.09); }
 .recent-more { width: 100%; height: 32px; margin-top: 6px; padding: 0 4px; display: flex; align-items: center; justify-content: space-between; border: 0; background: transparent; color: #6478cf; cursor: pointer; font-size: 10px; font-weight: 750; }
 .recent-more:hover { color: #4059c3; }
 .avatar { width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border: 2px solid color-mix(in srgb, var(--avatar-color) 65%, white); border-radius: 50%; background: color-mix(in srgb, var(--avatar-color) 16%, white); color: var(--avatar-color); font-size: 11px; font-weight: 800; }
@@ -141,3 +158,78 @@ footer button { padding: 0; border: 0; background: none; color: #7386d9; cursor:
 @keyframes spin { to { transform: rotate(360deg); } }
 ::-webkit-scrollbar { width: 7px; }
 ::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 99px; background: #d6d3d8; background-clip: padding-box; }
+
+:root[data-theme="dark"] { color: #e8e7ec; background: #17181d; color-scheme: dark; }
+:root[data-theme="dark"] body { background: radial-gradient(circle at 80% 0, rgba(120,140,226,.18), transparent 34%), #17181d; }
+:root[data-theme="dark"] .app-header { border-bottom-color: rgba(255,255,255,.07); background: rgba(27,28,34,.82); }
+:root[data-theme="dark"] .connection { background: #25262d; color: #aaa7b0; }
+:root[data-theme="dark"] .connection.connected { background: rgba(47,151,103,.15); color: #69d09b; }
+:root[data-theme="dark"] .connection.reconnecting { background: rgba(200,139,39,.15); color: #e2ae58; }
+:root[data-theme="dark"] .icon-button { color: #aaa7b0; }
+:root[data-theme="dark"] .icon-button:hover { background: rgba(120,140,226,.16); color: #9bacf2; }
+:root[data-theme="dark"] .tabs button { color: #918e98; }
+:root[data-theme="dark"] .tabs button.active { background: #282a32; color: #9daef4; box-shadow: 0 4px 16px rgba(0,0,0,.2); }
+:root[data-theme="dark"] #live-count { background: #6f82dc; }
+:root[data-theme="dark"] .section-copy small { color: #8e8b95; }
+:root[data-theme="dark"] .recent-section-title #recent-mark-all-read:disabled { background: rgba(255,255,255,.04); color: #77747d; }
+:root[data-theme="dark"] .member-chat-toolbar { border-color: rgba(120,140,226,.22); background: rgba(38,40,48,.72); }
+:root[data-theme="dark"] .member-chat-toolbar label { color: #aaa7b0; }
+:root[data-theme="dark"] .member-chat-toolbar select { border-color: rgba(120,140,226,.28); background: #2b2d35; color: #e2e1e6; }
+:root[data-theme="dark"] .member-chat-state { color: #8e8b95; }
+:root[data-theme="dark"] .member-chat-state > span { border-color: #43454e; border-top-color: #8fa1ec; }
+:root[data-theme="dark"] .live-card,
+:root[data-theme="dark"] .recent-group { border-color: rgba(255,255,255,.07); background: rgba(38,40,48,.94); box-shadow: 0 4px 16px rgba(0,0,0,.13); }
+:root[data-theme="dark"] .live-card:hover,
+:root[data-theme="dark"] .recent-group:hover,
+:root[data-theme="dark"] .recent-group.expanded { border-color: rgba(130,149,232,.38); box-shadow: 0 9px 24px rgba(0,0,0,.24); }
+:root[data-theme="dark"] .recent-group.unread { border-color: rgba(237,93,101,.38); }
+:root[data-theme="dark"] .recent-meta,
+:root[data-theme="dark"] .recent-meta i { color: #9a97a1; }
+:root[data-theme="dark"] .member-session-meta,
+:root[data-theme="dark"] .member-session-meta i { color: #9a97a1; }
+:root[data-theme="dark"] .member-session-meta small { color: #9aacf1; }
+:root[data-theme="dark"] .recent-preview { border-top-color: rgba(255,255,255,.08); }
+:root[data-theme="dark"] .preview-message { border-bottom-color: rgba(255,255,255,.055); }
+:root[data-theme="dark"] .preview-message time,
+:root[data-theme="dark"] .recent-preview-state { color: #8e8b95; }
+:root[data-theme="dark"] .recent-preview-state span { border-color: #43454e; border-top-color: #8fa1ec; }
+:root[data-theme="dark"] .recent-notification-button { color: #aaa7b0; }
+:root[data-theme="dark"] .recent-notification-button:hover { background: rgba(120,140,226,.15); color: #a5b4f3; }
+:root[data-theme="dark"] .recent-notification-button.muted { color: #dd7a82; }
+:root[data-theme="dark"] .recent-more { color: #92a4ed; }
+:root[data-theme="dark"] .recent-more:hover { color: #bac5f6; }
+:root[data-theme="dark"] .avatar { border-color: color-mix(in srgb, var(--avatar-color) 58%, #252730); background: color-mix(in srgb, var(--avatar-color) 18%, #252730); }
+:root[data-theme="dark"] .card-copy > small { color: #95929c; }
+:root[data-theme="dark"] .recent-channel-link,
+:root[data-theme="dark"] .live-channel-link { background: rgba(120,140,226,.15); color: #9aacf1; }
+:root[data-theme="dark"] .recent-channel-link:hover,
+:root[data-theme="dark"] .live-channel-link:hover { background: rgba(120,140,226,.25); color: #c0caf6; }
+:root[data-theme="dark"] .empty { color: #88858e; }
+:root[data-theme="dark"] .empty > span { background: #282a32; color: #93a4ed; }
+:root[data-theme="dark"] .empty strong { color: #c2c0c7; }
+:root[data-theme="dark"] .settings-panel { background: rgba(27,28,34,.985); }
+:root[data-theme="dark"] .settings-head small,
+:root[data-theme="dark"] .settings-panel label small,
+:root[data-theme="dark"] .settings-link > span:first-child small { color: #8f8c96; }
+:root[data-theme="dark"] .settings-head button { background: #2b2d35; }
+:root[data-theme="dark"] .settings-panel label,
+:root[data-theme="dark"] .settings-link,
+:root[data-theme="dark"] .notification-member-list,
+:root[data-theme="dark"] .settings-panel .notification-member { border-color: rgba(255,255,255,.07); }
+:root[data-theme="dark"] .settings-panel .notification-volume-setting { border-color: rgba(120,140,226,.25); background: rgba(45,47,57,.74); }
+:root[data-theme="dark"] .notification-volume-setting #notification-sound-test,
+:root[data-theme="dark"] .notification-bulk-actions button,
+:root[data-theme="dark"] .notification-bulk-grid button { border-color: rgba(120,140,226,.28); background: #2b2d35; color: #9eaff3; }
+:root[data-theme="dark"] #notifications-all-on { border-color: #788ce2; background: #788ce2; color: #fff; }
+:root[data-theme="dark"] #notifications-all-off { border-color: rgba(221,102,112,.35); color: #df858c; }
+:root[data-theme="dark"] .notification-bulk-grid button small { background: #363844; color: #a9b7ee; }
+:root[data-theme="dark"] .notification-bulk-grid button.enabled { background: rgba(120,140,226,.16); }
+:root[data-theme="dark"] .notification-member-head > b,
+:root[data-theme="dark"] .notification-matrix > span { color: #aaa7b0; }
+:root[data-theme="dark"] .loading,
+:root[data-theme="dark"] .error { background: #17181d; color: #918e98; }
+:root[data-theme="dark"] .loading span { border-color: #3b3d46; border-top-color: #8fa1ec; }
+:root[data-theme="dark"] .error strong { color: #d2d0d6; }
+:root[data-theme="dark"] footer { border-top-color: rgba(255,255,255,.07); background: rgba(27,28,34,.76); color: #85828b; }
+:root[data-theme="dark"] footer button { color: #91a3eb; }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #45464f; background-clip: padding-box; }
