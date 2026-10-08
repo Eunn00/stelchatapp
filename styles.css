@@ -23,6 +23,7 @@ main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .tabs button.active { background: white; color: #5f71c5; box-shadow: 0 3px 14px rgba(56,48,70,.07); }
 .tabs button span { min-width: 18px; height: 18px; margin-left: 3px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: #ed5d65; color: white; font-size: 9px; }
 #live-count { background: #788ce2; }
+#live-count[hidden] { display: none; }
 .tabs .unread-count { min-width: 0; width: 7px; height: 7px; margin-left: 5px; padding: 0; box-shadow: 0 0 0 3px rgba(237,93,101,.1); }
 .tabs .unread-count[hidden] { display: none; }
 .tabs .refresh-button { width: 34px; margin-left: auto; padding: 0; font-size: 20px; font-weight: 400; }

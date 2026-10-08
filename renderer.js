@@ -42,7 +42,9 @@ function avatar(item, prefix = '') {
 
 function renderLive() {
   const items = state.streamers.filter((item) => item.is_live);
-  $('#live-count').textContent = items.length;
+  const liveCount = $('#live-count');
+  liveCount.textContent = items.length;
+  liveCount.hidden = items.length === 0;
   $('#live-list').innerHTML = items.length ? items.map((item) => `
     <article class="live-card" style="--member-color:${escapeHtml(item.color)}">
       ${avatar(item)}
@@ -240,24 +242,33 @@ function renderMemberSessions() {
   bindMemberSessionControls();
 }
 
-async function loadMemberSessions(uid, force = false) {
+async function loadMemberSessions(uid, force = false, background = false) {
   if (!uid || (!force && state.memberSessions.length && state.selectedMemberUid === uid)) return;
+  if (background && state.memberSessionsLoading) return;
   const requestId = ++state.memberRequestId;
-  state.memberSessionsLoading = true;
-  state.memberSessionsError = '';
-  renderMemberSessions();
+  if (!background) {
+    state.memberSessionsLoading = true;
+    state.memberSessionsError = '';
+    renderMemberSessions();
+  }
+  let shouldRender = false;
   try {
     const sessions = await window.stelchat.memberSessions(uid);
     if (requestId !== state.memberRequestId || uid !== state.selectedMemberUid) return;
+    shouldRender = !background || JSON.stringify(state.memberSessions) !== JSON.stringify(sessions);
     state.memberSessions = sessions;
+    state.memberSessionsError = '';
   } catch {
     if (requestId !== state.memberRequestId || uid !== state.selectedMemberUid) return;
-    state.memberSessions = [];
-    state.memberSessionsError = '채팅방 기록을 불러오지 못했습니다.';
+    if (!background) {
+      state.memberSessions = [];
+      state.memberSessionsError = '채팅방 기록을 불러오지 못했습니다.';
+      shouldRender = true;
+    }
   } finally {
     if (requestId === state.memberRequestId && uid === state.selectedMemberUid) {
-      state.memberSessionsLoading = false;
-      renderMemberSessions();
+      if (!background) state.memberSessionsLoading = false;
+      if (shouldRender) renderMemberSessions();
     }
   }
 }
@@ -523,13 +534,13 @@ async function load(useRefresh = false, silent = false) {
     reconcileRecentReadState(data.recent);
     state.streamers = data.streamers;
     state.recent = data.recent;
-    renderMemberSelector();
+    if (!silent || streamersChanged) renderMemberSelector();
     applySettings(data.settings);
     updateConnection(data.connection || { connected: false, state: 'connecting' });
     if (!silent || streamersChanged) renderLive();
     if (!silent || recentChanged) renderRecent();
     if (state.activeTab === 'member' && state.selectedMemberUid) {
-      void loadMemberSessions(state.selectedMemberUid, true);
+      void loadMemberSessions(state.selectedMemberUid, true, silent);
     }
     if (!silent || streamersChanged || recentChanged) bindOpenLinks();
   } catch {

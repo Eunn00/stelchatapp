@@ -6,6 +6,7 @@ const {
 } = require('./notification-policy.cjs');
 
 const API_BASE = 'https://stelchat.xyz';
+const WINDOWS_APP_ID = 'xyz.stelchat.desktop';
 const DEFAULT_SETTINGS = {
   alwaysOnTop: false,
   darkMode: false,
@@ -34,7 +35,7 @@ let streamerByUid = new Map();
 let notificationBaselineReady = false;
 let startupLiveSessions = new Set();
 
-if (process.platform === 'win32') app.setAppUserModelId('xyz.stelchat.desktop');
+if (process.platform === 'win32') app.setAppUserModelId(WINDOWS_APP_ID);
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 const NOTIFICATION_CHANNELS = new Set(['desktop', 'sound']);
@@ -69,6 +70,27 @@ function normalizedMutedChatRooms(value) {
 
 function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json');
+}
+
+function ensureWindowsPortableShortcut() {
+  const executablePath = process.env.PORTABLE_EXECUTABLE_FILE;
+  if (process.platform !== 'win32' || !app.isPackaged || !executablePath) return;
+  const shortcutPath = path.join(
+    app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'StelChat.lnk',
+  );
+  try {
+    fs.mkdirSync(path.dirname(shortcutPath), { recursive: true });
+    shell.writeShortcutLink(shortcutPath, 'replace', {
+      target: executablePath,
+      cwd: path.dirname(executablePath),
+      description: 'StelChat Windows companion',
+      icon: executablePath,
+      iconIndex: 0,
+      appUserModelId: WINDOWS_APP_ID,
+    });
+  } catch {
+    // The app remains usable even if Windows rejects optional shell integration.
+  }
 }
 
 function loadSettings() {
@@ -251,11 +273,22 @@ function applyWindowBehavior() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const desktopMode = Boolean(settings.desktopMode);
   mainWindow.setAlwaysOnTop(!desktopMode && Boolean(settings.alwaysOnTop));
-  mainWindow.setSkipTaskbar(desktopMode);
   mainWindow.setMinimizable(!desktopMode);
   mainWindow.setVisibleOnAllWorkspaces(desktopMode, { visibleOnFullScreen: false });
   mainWindow.setOpacity(settings.opacity);
   mainWindow.setBackgroundColor(settings.darkMode ? '#17181d' : '#f6f5f2');
+}
+
+function applyWindowsTaskbarDetails() {
+  if (process.platform !== 'win32' || !mainWindow || mainWindow.isDestroyed()) return;
+  const executablePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+  mainWindow.setAppDetails({
+    appId: WINDOWS_APP_ID,
+    appIconPath: executablePath,
+    appIconIndex: 0,
+    relaunchCommand: `"${executablePath}"`,
+    relaunchDisplayName: 'StelChat',
+  });
 }
 
 function updateTrayMenu() {
@@ -388,7 +421,10 @@ function createWindow() {
   });
   applyWindowBehavior();
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    applyWindowsTaskbarDetails();
+  });
   mainWindow.on('close', (event) => {
     if (!quitting) {
       event.preventDefault();
@@ -432,6 +468,7 @@ else {
   app.on('second-instance', showWindow);
   app.whenReady().then(() => {
     loadSettings();
+    ensureWindowsPortableShortcut();
     createWindow();
     createTray();
     connectEvents();

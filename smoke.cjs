@@ -12,6 +12,50 @@ async function inspectRenderer() {
       params: {
         expression: `(async () => {
           const liveMemberSessions = await window.stelchat.memberSessions(state.streamers[0].uid);
+           const backgroundMemberRefreshUi = await (async () => {
+             const member = state.streamers[0];
+             const original = {
+               selectedMemberUid: state.selectedMemberUid,
+               memberSessions: state.memberSessions,
+               memberSessionsLoading: state.memberSessionsLoading,
+               memberSessionsError: state.memberSessionsError,
+               expandedMemberSessionId: state.expandedMemberSessionId,
+               memberPreviews: state.memberPreviews,
+             };
+             state.selectedMemberUid = member.uid;
+             state.memberSessions = liveMemberSessions;
+             state.memberSessionsLoading = false;
+             state.memberSessionsError = '';
+             state.expandedMemberSessionId = null;
+             state.memberPreviews = new Map();
+             renderMemberSessions();
+             const list = document.querySelector('#member-chat-list');
+             let loadingRendered = false;
+             const observer = new MutationObserver(() => {
+               loadingRendered ||= Boolean(list.querySelector('.member-chat-state'));
+             });
+             observer.observe(list, { childList: true, subtree: true });
+             const pendingRefresh = loadMemberSessions(member.uid, true, true);
+             const preservedWhilePending = !state.memberSessionsLoading
+               && !list.querySelector('.member-chat-state');
+             await pendingRefresh;
+             await Promise.resolve();
+             observer.disconnect();
+             const result = {
+               preservedWhilePending,
+               loadingRendered,
+               loadingAfterRefresh: state.memberSessionsLoading
+                 || Boolean(list.querySelector('.member-chat-state')),
+             };
+             state.selectedMemberUid = original.selectedMemberUid;
+             state.memberSessions = original.memberSessions;
+             state.memberSessionsLoading = original.memberSessionsLoading;
+             state.memberSessionsError = original.memberSessionsError;
+             state.expandedMemberSessionId = original.expandedMemberSessionId;
+             state.memberPreviews = original.memberPreviews;
+             renderMemberSessions();
+             return result;
+           })();
           return JSON.stringify({
           loadingHidden: document.querySelector('#loading').hidden,
           errorHidden: document.querySelector('#error').hidden,
@@ -19,10 +63,15 @@ async function inspectRenderer() {
           liveCards: document.querySelectorAll('.live-card').length,
           liveInteraction: (() => {
             const original = state.streamers;
+            state.streamers = [];
+            renderLive();
+            const zeroCountHidden = document.querySelector('#live-count').hidden;
             state.streamers = [{ uid: '45e71a76e949e16a34764deb962f9d9f', initials: 'YN', name: '아야츠노 유니', color: '#a993e8', is_live: true }];
             renderLive();
             const card = document.querySelector('.live-card');
             const value = {
+              zeroCountHidden,
+              oneCountVisible: !document.querySelector('#live-count').hidden,
               link: document.querySelector('.live-channel-link').dataset.url,
               cardTag: card.tagName,
               cardUrl: card.dataset.url || '',
@@ -216,6 +265,7 @@ async function inspectRenderer() {
             renderMemberSessions();
             return result;
           })(),
+           backgroundMemberRefreshUi,
           notificationMembers: new Set([...document.querySelectorAll('[data-notification-uid]')].map((item) => item.dataset.notificationUid)).size,
           notificationInputs: document.querySelectorAll('[data-notification-uid]').length,
           notificationBulkButtons: document.querySelectorAll('[data-notification-bulk]').length,
