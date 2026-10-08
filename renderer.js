@@ -56,6 +56,11 @@ function markHtml(item) {
   return marks.map((mark) => `<i class="channel-mark channel-mark-${escapeHtml(mark.key || 'legacy')}" style="--mark-color:${escapeHtml(mark.color)}" title="${escapeHtml(mark.title)}">${escapeHtml(mark.symbol)}</i>`).join('');
 }
 
+function recentSessionStatusHtml(status) {
+  const isLive = status === 'OPEN';
+  return `<i class="recent-session-status ${isLive ? 'live' : 'ended'}" title="${isLive ? '현재 방송 중' : '종료된 방송'}">${isLive ? 'LIVE' : '종료'}</i>`;
+}
+
 const recentKey = (item) => `${item.session_id}:${item.target_uid}`;
 const recentNotificationMuted = (item) => Boolean(state.settings.mutedChatRooms?.[recentKey(item)]);
 
@@ -156,7 +161,7 @@ function renderRecent() {
     <article class="recent-group${state.expandedRecentKey === recentKey(item) ? ' expanded' : ''}${state.unreadRecentKeys.has(recentKey(item)) ? ' unread' : ''}" data-key="${recentKey(item)}">
       <div class="recent-summary" data-key="${recentKey(item)}" role="button" tabindex="0" aria-expanded="${state.expandedRecentKey === recentKey(item)}">
         ${avatar(item, 'target_')}
-        <span class="card-copy"><span class="card-title"><strong>${escapeHtml(item.target_name)}</strong>${state.unreadRecentKeys.has(recentKey(item)) ? '<i class="recent-unread-dot" title="읽지 않은 새 채팅" aria-label="읽지 않은 새 채팅"></i>' : ''}${item.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}</span><small class="recent-channel-row"><span>${escapeHtml(item.channel_name)}${markHtml(item)}의 방송에서</span><button class="recent-channel-link" data-url="${escapeHtml(liveUrl(item.channel_id))}" type="button" title="CHZZK 라이브 채널 열기" aria-label="${escapeHtml(item.channel_name)} CHZZK 라이브 채널 열기">↗</button></small>${state.expandedRecentKey === recentKey(item) ? '' : `<b>“${escapeHtml(item.content)}”</b>`}</span>
+        <span class="card-copy"><span class="card-title"><strong>${escapeHtml(item.target_name)}</strong>${state.unreadRecentKeys.has(recentKey(item)) ? '<i class="recent-unread-dot" title="읽지 않은 새 채팅" aria-label="읽지 않은 새 채팅"></i>' : ''}${item.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}</span><small class="recent-channel-row"><span>${escapeHtml(item.channel_name)}${markHtml(item)}의 방송에서</span><button class="recent-channel-link" data-url="${escapeHtml(liveUrl(item.channel_id))}" type="button" title="CHZZK 라이브 채널 열기" aria-label="${escapeHtml(item.channel_name)} CHZZK 라이브 채널 열기">↗</button>${recentSessionStatusHtml(item.status)}</small>${state.expandedRecentKey === recentKey(item) ? '' : `<b>“${escapeHtml(item.content)}”</b>`}</span>
         <span class="recent-meta"><button class="recent-notification-button${recentNotificationMuted(item) ? ' muted' : ''}" data-session-id="${escapeHtml(item.session_id)}" data-target-uid="${escapeHtml(item.target_uid)}" data-state="${recentNotificationMuted(item) ? 'muted' : 'active'}" type="button" title="${recentNotificationMuted(item) ? '알림 켜기' : '알림 끄기'}" aria-label="${escapeHtml(item.target_name)} ${recentNotificationMuted(item) ? '채팅방 알림 켜기' : '채팅방 알림 끄기'}">${notificationBellIcon(recentNotificationMuted(item))}</button><time>${formatDate(item.sent_at)}<br />${formatTime(item.sent_at)}</time><i>⌄</i></span>
       </div>
       ${state.expandedRecentKey === recentKey(item) ? `<div class="recent-preview">${recentPreviewHtml(item)}</div>` : ''}
@@ -309,6 +314,17 @@ function bindMemberSessionControls() {
 
 function findRecent(key) {
   return state.recent.find((item) => recentKey(item) === key);
+}
+
+function updateRecentSessionStatus(payload) {
+  let changed = false;
+  state.recent.forEach((item) => {
+    if (item.session_id !== payload.session_id || item.status === payload.status) return;
+    item.status = payload.status;
+    changed = true;
+  });
+  if (changed) renderRecent();
+  return changed;
 }
 
 async function expandRecent(item) {
@@ -639,6 +655,7 @@ window.stelchat.onEvent(({ eventName, payload }) => {
       renderMemberSessions();
     }
   } else if (eventName === 'session') {
+    updateRecentSessionStatus(payload);
     const member = state.streamers.find((item) => item.uid === payload.target_uid || item.uid === payload.channel_id);
     if (member) {
       member.is_live = payload.status === 'OPEN';

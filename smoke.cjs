@@ -114,6 +114,28 @@ async function inspectRenderer() {
             renderRecent();
             return result;
           })(),
+          recentLiveStatusUi: (() => {
+            const first = state.recent[0];
+            if (!first) return { available: false };
+            const originalStatus = first.status;
+            updateRecentSessionStatus({ session_id: first.session_id, status: 'OPEN' });
+            const statusSelector = '.recent-group[data-key="' + recentKey(first) + '"]';
+            const liveBadge = document.querySelector(statusSelector + ' .recent-session-status');
+            const liveLink = document.querySelector(statusSelector + ' .recent-channel-link');
+            const result = {
+              available: true,
+              liveText: liveBadge?.textContent,
+              liveClass: liveBadge?.classList.contains('live'),
+              afterLink: liveLink?.nextElementSibling === liveBadge,
+            };
+            updateRecentSessionStatus({ session_id: first.session_id, status: 'CLOSE' });
+            const endedBadge = document.querySelector(statusSelector + ' .recent-session-status');
+            result.endedText = endedBadge?.textContent;
+            result.endedClass = endedBadge?.classList.contains('ended');
+            first.status = originalStatus;
+            renderRecent();
+            return result;
+          })(),
           chatRoomMuteUi: (() => {
             const first = state.recent[0];
             if (!first) return { available: false };
@@ -331,6 +353,9 @@ async function inspectRenderer() {
       || !result.unreadRecentUi.cleared
       || !result.expandedRecentUi.available || !result.expandedRecentUi.summaryMessageHidden
       || result.expandedRecentUi.previewOrder.join(',') !== 'timeline-1,timeline-2,timeline-3,timeline-4'
+      || !result.recentLiveStatusUi.available || result.recentLiveStatusUi.liveText !== 'LIVE'
+      || !result.recentLiveStatusUi.liveClass || !result.recentLiveStatusUi.afterLink
+      || result.recentLiveStatusUi.endedText !== '종료' || !result.recentLiveStatusUi.endedClass
       || !result.chatRoomMuteUi.available || !result.chatRoomMuteUi.mutedButton
       || result.chatRoomMuteUi.mutedIcon !== 'muted' || !result.chatRoomMuteUi.mutedSvg
       || result.chatRoomMuteUi.mutedTitle !== '알림 켜기'

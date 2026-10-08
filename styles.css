@@ -87,6 +87,9 @@ main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .recent-channel-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent-channel-link { width: 18px; height: 18px; flex: 0 0 18px; padding: 0; display: inline-grid; place-items: center; border: 0; border-radius: 5px; background: rgba(120,140,226,.1); color: #6679cd; cursor: pointer; font-size: 10px; font-weight: 800; }
 .recent-channel-link:hover { background: rgba(120,140,226,.2); color: #4059c3; }
+.recent-session-status { flex: 0 0 auto; padding: 2px 5px; border-radius: 5px; font-size: 7.5px; font-style: normal; font-weight: 850; line-height: 1.25; }
+.recent-session-status.live { background: rgba(237,93,101,.13); color: #d64f59; }
+.recent-session-status.ended { background: rgba(113,107,117,.09); color: #918b94; }
 .live-pill, .donation-pill { padding: 2px 5px; border-radius: 5px; background: #ed5d65; color: white; font-size: 8px; font-style: normal; font-weight: 800; }
 .donation-pill { background: #e79b39; }
 .channel-mark { margin-left: 3px; color: var(--mark-color); font-style: normal; font-weight: 800; }
@@ -204,6 +207,8 @@ footer button { padding: 0; border: 0; background: none; color: #7386d9; cursor:
 :root[data-theme="dark"] .live-channel-link { background: rgba(120,140,226,.15); color: #9aacf1; }
 :root[data-theme="dark"] .recent-channel-link:hover,
 :root[data-theme="dark"] .live-channel-link:hover { background: rgba(120,140,226,.25); color: #c0caf6; }
+:root[data-theme="dark"] .recent-session-status.live { background: rgba(237,93,101,.16); color: #ef8189; }
+:root[data-theme="dark"] .recent-session-status.ended { background: rgba(255,255,255,.07); color: #9d99a3; }
 :root[data-theme="dark"] .empty { color: #88858e; }
 :root[data-theme="dark"] .empty > span { background: #282a32; color: #93a4ed; }
 :root[data-theme="dark"] .empty strong { color: #c2c0c7; }

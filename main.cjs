@@ -34,6 +34,7 @@ let streamerByUid = new Map();
 let notificationBaselineReady = false;
 let startupLiveSessions = new Set();
 
+if (process.platform === 'win32') app.setAppUserModelId('xyz.stelchat.desktop');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 const NOTIFICATION_CHANNELS = new Set(['desktop', 'sound']);
