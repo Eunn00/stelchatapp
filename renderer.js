@@ -1,6 +1,7 @@
 const API_BASE = 'https://stelchat.xyz';
 const state = {
   streamers: [], recent: [], settings: {}, activeTab: 'live',
+  versionStatus: null, updateNoticeAcknowledged: false,
   expandedRecentKey: '',
   recentPreviews: new Map(), recentPreviewLoading: new Set(),
   unreadRecentKeys: new Set(), knownRecentIds: new Map(),
@@ -585,8 +586,38 @@ $('#retry-button').addEventListener('click', () => load(true));
 $('#desktop-button').addEventListener('click', async () => applySettings(await window.stelchat.setSetting('desktopMode', !state.settings.desktopMode)));
 $('#open-site').addEventListener('click', () => window.stelchat.openUrl(`${API_BASE}/`));
 $('#footer-site').addEventListener('click', () => window.stelchat.openUrl(`${API_BASE}/`));
-window.stelchat.appVersion().then((version) => { $('#app-version').textContent = `v${version}`; });
-$('#settings-button').addEventListener('click', () => { $('#settings-panel').classList.add('open'); $('#settings-panel').setAttribute('aria-hidden', 'false'); });
+function renderUpdateIndicator() {
+  const status = state.versionStatus;
+  const showDot = Boolean(status?.updateAvailable && !state.updateNoticeAcknowledged);
+  const settingsButton = $('#settings-button');
+  settingsButton.classList.toggle('update-available', showDot);
+  settingsButton.title = showDot ? '설정 · 최신 버전 있음' : '설정';
+  settingsButton.setAttribute('aria-label', settingsButton.title);
+}
+
+function applyVersionStatus({ current, latest, updateAvailable, checked, releaseUrl = '' }) {
+  if (current) $('#app-version').textContent = `v${current}`;
+  if (!checked) return;
+  state.versionStatus = { current, latest, updateAvailable, releaseUrl };
+  const update = $('#app-update-status');
+  $('#app-update-copy').textContent = updateAvailable ? `최신 버전이 존재합니다 · v${latest}` : '';
+  $('#app-update-link').hidden = !releaseUrl;
+  update.hidden = !updateAvailable;
+  renderUpdateIndicator();
+}
+window.stelchat.appVersionStatus().then(applyVersionStatus);
+window.stelchat.onVersionStatus(applyVersionStatus);
+$('#app-update-link').addEventListener('click', () => {
+  if (state.versionStatus?.releaseUrl) window.stelchat.openUrl(state.versionStatus.releaseUrl);
+});
+$('#settings-button').addEventListener('click', () => {
+  if (state.versionStatus?.updateAvailable) {
+    state.updateNoticeAcknowledged = true;
+    renderUpdateIndicator();
+  }
+  $('#settings-panel').classList.add('open');
+  $('#settings-panel').setAttribute('aria-hidden', 'false');
+});
 $('#settings-close').addEventListener('click', () => { $('#notification-settings-panel').classList.remove('open'); $('#notification-settings-panel').setAttribute('aria-hidden', 'true'); $('#settings-panel').classList.remove('open'); $('#settings-panel').setAttribute('aria-hidden', 'true'); });
 $('#notification-settings-open').addEventListener('click', () => { $('#notification-settings-panel').classList.add('open'); $('#notification-settings-panel').setAttribute('aria-hidden', 'false'); });
 $('#notification-settings-back').addEventListener('click', () => { $('#notification-settings-panel').classList.remove('open'); $('#notification-settings-panel').setAttribute('aria-hidden', 'true'); });

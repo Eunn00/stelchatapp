@@ -12,7 +12,7 @@ contextBridge.exposeInMainWorld('stelchat', {
   memberSessions: (uid) => ipcRenderer.invoke('member-sessions', uid),
   sessionPreview: (sessionId, targetUid) => ipcRenderer.invoke('session-preview', sessionId, targetUid),
   openUrl: (url) => ipcRenderer.invoke('open-url', url),
-  appVersion: () => ipcRenderer.invoke('app-version'),
+  appVersionStatus: () => ipcRenderer.invoke('app-version-status'),
   setSetting: (key, value) => ipcRenderer.invoke('set-setting', key, value),
   setMemberNotification: (uid, channel, eventType, value) => ipcRenderer.invoke('set-member-notification', uid, channel, eventType, value),
   setAllMemberNotifications: (channel, eventType, value) => ipcRenderer.invoke('set-all-member-notifications', channel, eventType, value),
@@ -22,4 +22,5 @@ contextBridge.exposeInMainWorld('stelchat', {
   onConnection: (callback) => subscribe('connection', callback),
   onSettings: (callback) => subscribe('settings', callback),
   onNotificationSound: (callback) => subscribe('notification-sound', callback),
+  onVersionStatus: (callback) => subscribe('version-status', callback),
 });

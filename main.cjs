@@ -5,8 +5,11 @@ const {
   chatRoomIsMuted, chatRoomKey, liveSessionKey, notificationEventType,
 } = require('./notification-policy.cjs');
 const { createExternalOpenGuard } = require('./external-link-policy.cjs');
+const { isNewerVersion, normalizedVersion } = require('./update-policy.cjs');
 
 const API_BASE = 'https://stelchat.xyz';
+const LATEST_RELEASE_API = 'https://api.github.com/repos/Eunn00/stelchatapp/releases/latest';
+const VERSION_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const WINDOWS_APP_ID = 'xyz.stelchat.desktop';
 const DEFAULT_SETTINGS = {
   alwaysOnTop: false,
@@ -29,6 +32,7 @@ let quitting = false;
 let settings = { ...DEFAULT_SETTINGS };
 let eventAbortController;
 let reconnectTimer;
+let versionCheckTimer;
 let lastEventId = '';
 let connectionStatus = { connected: false, state: 'connecting' };
 let boundsSaveTimer;
@@ -36,6 +40,7 @@ let streamerByUid = new Map();
 let notificationBaselineReady = false;
 let startupLiveSessions = new Set();
 const shouldOpenExternal = createExternalOpenGuard();
+let versionStatusPromise;
 
 if (process.platform === 'win32') app.setAppUserModelId(WINDOWS_APP_ID);
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -126,6 +131,9 @@ function allowedExternalUrl(value) {
     if (url.origin === 'https://chzzk.naver.com'
         && /^\/live\/[0-9a-f]{32}$/.test(url.pathname)
         && !url.search && !url.hash) return url.href;
+    if (url.origin === 'https://github.com'
+        && /^\/Eunn00\/stelchatapp\/releases\/tag\/v\d+\.\d+\.\d+$/.test(url.pathname)
+        && !url.search && !url.hash) return url.href;
   } catch {
     // Ignore malformed or non-HTTPS external URLs.
   }
@@ -137,6 +145,65 @@ function openExternalOnce(value) {
   if (!externalUrl || !shouldOpenExternal(externalUrl)) return false;
   shell.openExternal(externalUrl).catch(() => {});
   return true;
+}
+
+async function fetchVersionStatus() {
+  const current = app.getVersion();
+  const developmentOverride = process.env.STELCHAT_UPDATE_PREVIEW === '1'
+    ? normalizedVersion(process.env.STELCHAT_LATEST_VERSION_OVERRIDE)
+    : null;
+  if (developmentOverride) {
+    return {
+      current,
+      latest: developmentOverride,
+      updateAvailable: isNewerVersion(developmentOverride, current),
+      releaseUrl: `https://github.com/Eunn00/stelchatapp/releases/tag/v${developmentOverride}`,
+      checked: true,
+    };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(LATEST_RELEASE_API, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': `StelChat-Desktop/${current}`,
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const release = await response.json();
+    const latest = normalizedVersion(release.tag_name);
+    const expectedReleaseUrl = latest
+      ? `https://github.com/Eunn00/stelchatapp/releases/tag/v${latest}`
+      : null;
+    return {
+      current,
+      latest,
+      updateAvailable: Boolean(latest && isNewerVersion(latest, current)),
+      releaseUrl: release.html_url === expectedReleaseUrl ? expectedReleaseUrl : null,
+      checked: true,
+    };
+  } catch {
+    return {
+      current, latest: null, updateAvailable: false, releaseUrl: null, checked: false,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function versionStatus(force = false) {
+  if (force || !versionStatusPromise) versionStatusPromise = fetchVersionStatus();
+  return versionStatusPromise;
+}
+
+function startVersionChecks() {
+  clearInterval(versionCheckTimer);
+  versionCheckTimer = setInterval(async () => {
+    const status = await versionStatus(true);
+    sendToRenderer('version-status', status);
+  }, VERSION_CHECK_INTERVAL_MS);
 }
 
 async function fetchJson(endpoint) {
@@ -470,7 +537,8 @@ function createTray() {
   updateTrayMenu();
 }
 
-const gotLock = app.requestSingleInstanceLock();
+const updatePreviewMode = process.env.STELCHAT_UPDATE_PREVIEW === '1';
+const gotLock = updatePreviewMode || app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
 else {
   app.on('second-instance', showWindow);
@@ -480,6 +548,7 @@ else {
     createWindow();
     createTray();
     connectEvents();
+    startVersionChecks();
   });
 }
 
@@ -487,6 +556,7 @@ app.on('window-all-closed', () => {});
 app.on('before-quit', () => {
   quitting = true;
   clearTimeout(reconnectTimer);
+  clearInterval(versionCheckTimer);
   eventAbortController?.abort();
 });
 
@@ -508,7 +578,7 @@ ipcMain.handle('session-preview', (_event, sessionId, targetUid) => {
 ipcMain.handle('open-url', (_event, url) => {
   openExternalOnce(url);
 });
-ipcMain.handle('app-version', () => app.getVersion());
+ipcMain.handle('app-version-status', versionStatus);
 ipcMain.handle('set-setting', (_event, key, value) => setSetting(key, value));
 ipcMain.handle('set-member-notification', (_event, uid, channel, eventType, value) => setMemberNotification(uid, channel, eventType, value));
 ipcMain.handle('set-all-member-notifications', (_event, channel, eventType, value) => setAllMemberNotifications(channel, eventType, value));

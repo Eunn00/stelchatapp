@@ -17,6 +17,8 @@ button { color: inherit; }
 .icon-button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: #817d85; cursor: pointer; }
 .icon-button:hover { background: rgba(120,140,226,.1); color: #586dc8; }
 .icon-button.enabled { background: #788ce2; color: white; }
+#settings-button { position: relative; }
+#settings-button.update-available::after { content: ""; position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; border: 2px solid #f8f7f4; border-radius: 50%; background: #ed5d65; box-shadow: 0 0 0 2px rgba(237,93,101,.1); }
 main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .tabs { height: 50px; padding: 8px 14px 0; display: flex; align-items: flex-end; gap: 4px; }
 .tabs button { height: 34px; padding: 0 11px; border: 0; border-radius: 9px; background: transparent; color: #969197; cursor: pointer; font-size: 12px; font-weight: 750; }
@@ -124,10 +126,15 @@ main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .settings-link-status { display: flex; align-items: center; gap: 6px; color: #6d7fd0; white-space: nowrap; }
 .settings-link-status small { font-size: 9px; font-weight: 700; }
 .settings-link-status b { font-size: 20px; font-weight: 400; }
-.app-version-row { margin-top: auto; padding: 13px; display: flex; align-items: center; justify-content: space-between; gap: 15px; border-top: 1px solid rgba(70,60,75,.08); }
+.app-version-row { margin-top: auto; padding: 13px; border-top: 1px solid rgba(70,60,75,.08); }
+.app-version-main { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .app-version-row strong { display: block; font-size: 11px; }
 .app-version-row small { margin-top: 3px; display: block; color: #969198; font-size: 9px; }
-.app-version-row > b { padding: 4px 7px; border-radius: 6px; background: rgba(120,140,226,.1); color: #6477cb; font-size: 10px; font-weight: 800; }
+.app-version-main > b { padding: 4px 7px; border-radius: 6px; background: rgba(120,140,226,.1); color: #6477cb; font-size: 10px; font-weight: 800; }
+.app-version-row > #app-update-status { margin-top: 9px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-radius: 7px; background: rgba(120,140,226,.1); color: #566bc5; font-size: 9.5px; font-weight: 750; }
+.app-version-row > #app-update-status[hidden] { display: none; }
+#app-update-link { flex: 0 0 auto; padding: 2px 0; border: 0; background: transparent; color: #4d63c0; cursor: pointer; font-size: 8.5px; font-weight: 800; }
+#app-update-link:hover { color: #304aa9; text-decoration: underline; }
 .notification-settings-panel { z-index: 6; display: flex; flex-direction: column; }
 .notification-settings-head { margin-bottom: 12px; align-items: center; justify-content: flex-start; gap: 9px; }
 .notification-settings-head > button { flex: 0 0 auto; font-size: 25px; line-height: 1; }
@@ -175,6 +182,7 @@ footer button { padding: 0; border: 0; background: none; color: #7386d9; cursor:
 :root[data-theme="dark"] .connection.reconnecting { background: rgba(200,139,39,.15); color: #e2ae58; }
 :root[data-theme="dark"] .icon-button { color: #aaa7b0; }
 :root[data-theme="dark"] .icon-button:hover { background: rgba(120,140,226,.16); color: #9bacf2; }
+:root[data-theme="dark"] #settings-button.update-available::after { border-color: #1b1c22; }
 :root[data-theme="dark"] .tabs button { color: #918e98; }
 :root[data-theme="dark"] .tabs button.active { background: #282a32; color: #9daef4; box-shadow: 0 4px 16px rgba(0,0,0,.2); }
 :root[data-theme="dark"] #live-count { background: #6f82dc; }
@@ -223,7 +231,9 @@ footer button { padding: 0; border: 0; background: none; color: #7386d9; cursor:
 :root[data-theme="dark"] .settings-link > span:first-child small { color: #8f8c96; }
 :root[data-theme="dark"] .app-version-row small { color: #8f8c96; }
 :root[data-theme="dark"] .app-version-row { border-color: rgba(255,255,255,.07); }
-:root[data-theme="dark"] .app-version-row > b { background: rgba(120,140,226,.16); color: #a1b1f1; }
+:root[data-theme="dark"] .app-version-main > b,
+:root[data-theme="dark"] .app-version-row > #app-update-status { background: rgba(120,140,226,.16); color: #a1b1f1; }
+:root[data-theme="dark"] #app-update-link { color: #b1bef2; }
 :root[data-theme="dark"] .settings-head button { background: #2b2d35; }
 :root[data-theme="dark"] .settings-panel label,
 :root[data-theme="dark"] .settings-link,
