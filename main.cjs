@@ -4,6 +4,7 @@ const path = require('node:path');
 const {
   chatRoomIsMuted, chatRoomKey, liveSessionKey, notificationEventType,
 } = require('./notification-policy.cjs');
+const { createExternalOpenGuard } = require('./external-link-policy.cjs');
 
 const API_BASE = 'https://stelchat.xyz';
 const WINDOWS_APP_ID = 'xyz.stelchat.desktop';
@@ -34,6 +35,7 @@ let boundsSaveTimer;
 let streamerByUid = new Map();
 let notificationBaselineReady = false;
 let startupLiveSessions = new Set();
+const shouldOpenExternal = createExternalOpenGuard();
 
 if (process.platform === 'win32') app.setAppUserModelId(WINDOWS_APP_ID);
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -130,6 +132,13 @@ function allowedExternalUrl(value) {
   return null;
 }
 
+function openExternalOnce(value) {
+  const externalUrl = allowedExternalUrl(value);
+  if (!externalUrl || !shouldOpenExternal(externalUrl)) return false;
+  shell.openExternal(externalUrl).catch(() => {});
+  return true;
+}
+
 async function fetchJson(endpoint) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -198,7 +207,7 @@ function dispatchNotification(eventName, payload) {
       body: liveMember ? (payload.title || '방송을 시작했어요.') : `${payload.channel_name || '채팅방'} · ${payload.content || ''}`,
       silent: true,
     });
-    notification.on('click', () => shell.openExternal(memberUrl(targetInitials)));
+    notification.on('click', () => openExternalOnce(memberUrl(targetInitials)));
     notification.show();
   }
   if (preference.sound[notificationEvent]) {
@@ -295,7 +304,7 @@ function updateTrayMenu() {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'StelChat 열기', click: showWindow },
-    { label: '웹사이트 열기', click: () => shell.openExternal(API_BASE) },
+    { label: '웹사이트 열기', click: () => openExternalOnce(API_BASE) },
     { type: 'separator' },
     {
       label: '항상 위에 표시', type: 'checkbox', checked: settings.alwaysOnTop,
@@ -448,8 +457,7 @@ function createWindow() {
   mainWindow.on('move', rememberBounds);
   mainWindow.on('resize', rememberBounds);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    const externalUrl = allowedExternalUrl(url);
-    if (externalUrl) shell.openExternal(externalUrl);
+    openExternalOnce(url);
     return { action: 'deny' };
   });
 }
@@ -498,9 +506,9 @@ ipcMain.handle('session-preview', (_event, sessionId, targetUid) => {
   return fetchJson(`/api/sessions/${numericSessionId}?target_uid=${encodeURIComponent(targetUid)}&limit=20`);
 });
 ipcMain.handle('open-url', (_event, url) => {
-  const externalUrl = allowedExternalUrl(url);
-  if (externalUrl) shell.openExternal(externalUrl);
+  openExternalOnce(url);
 });
+ipcMain.handle('app-version', () => app.getVersion());
 ipcMain.handle('set-setting', (_event, key, value) => setSetting(key, value));
 ipcMain.handle('set-member-notification', (_event, uid, channel, eventType, value) => setMemberNotification(uid, channel, eventType, value));
 ipcMain.handle('set-all-member-notifications', (_event, channel, eventType, value) => setAllMemberNotifications(channel, eventType, value));

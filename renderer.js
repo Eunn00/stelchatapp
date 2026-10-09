@@ -403,6 +403,8 @@ function bindRecentControls() {
 
 function bindOpenLinks() {
   document.querySelectorAll('.open-member, .live-channel-link').forEach((element) => {
+    if (element.dataset.openLinkBound === 'true') return;
+    element.dataset.openLinkBound = 'true';
     element.addEventListener('click', () => window.stelchat.openUrl(element.dataset.url));
   });
 }
@@ -542,7 +544,7 @@ async function load(useRefresh = false, silent = false) {
     if (state.activeTab === 'member' && state.selectedMemberUid) {
       void loadMemberSessions(state.selectedMemberUid, true, silent);
     }
-    if (!silent || streamersChanged || recentChanged) bindOpenLinks();
+    if (!silent || streamersChanged) bindOpenLinks();
   } catch {
     if (!silent) $('#error').hidden = false;
   } finally {
@@ -583,6 +585,7 @@ $('#retry-button').addEventListener('click', () => load(true));
 $('#desktop-button').addEventListener('click', async () => applySettings(await window.stelchat.setSetting('desktopMode', !state.settings.desktopMode)));
 $('#open-site').addEventListener('click', () => window.stelchat.openUrl(`${API_BASE}/`));
 $('#footer-site').addEventListener('click', () => window.stelchat.openUrl(`${API_BASE}/`));
+window.stelchat.appVersion().then((version) => { $('#app-version').textContent = `v${version}`; });
 $('#settings-button').addEventListener('click', () => { $('#settings-panel').classList.add('open'); $('#settings-panel').setAttribute('aria-hidden', 'false'); });
 $('#settings-close').addEventListener('click', () => { $('#notification-settings-panel').classList.remove('open'); $('#notification-settings-panel').setAttribute('aria-hidden', 'true'); $('#settings-panel').classList.remove('open'); $('#settings-panel').setAttribute('aria-hidden', 'true'); });
 $('#notification-settings-open').addEventListener('click', () => { $('#notification-settings-panel').classList.add('open'); $('#notification-settings-panel').setAttribute('aria-hidden', 'false'); });
