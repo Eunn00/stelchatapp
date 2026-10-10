@@ -2,6 +2,8 @@ const API_BASE = 'https://stelchat.xyz';
 const state = {
   streamers: [], recent: [], settings: {}, activeTab: 'live',
   versionStatus: null, updateNoticeAcknowledged: false,
+  recentRevision: 0, recentKeyRevisions: new Map(),
+  streamerRevision: 0, streamerKeyRevisions: new Map(),
   expandedRecentKey: '',
   recentPreviews: new Map(), recentPreviewLoading: new Set(),
   unreadRecentKeys: new Set(), knownRecentIds: new Map(),
@@ -526,17 +528,31 @@ function applySettings(settings) {
 }
 
 async function load(useRefresh = false, silent = false) {
+  const recentRevisionAtStart = state.recentRevision;
+  const streamerRevisionAtStart = state.streamerRevision;
   if (!silent) {
     $('#loading').hidden = false;
     $('#error').hidden = true;
   }
   try {
     const data = useRefresh ? await window.stelchat.refresh() : await window.stelchat.snapshot();
-    const streamersChanged = JSON.stringify(state.streamers) !== JSON.stringify(data.streamers);
-    const recentChanged = JSON.stringify(state.recent) !== JSON.stringify(data.recent);
-    reconcileRecentReadState(data.recent);
-    state.streamers = data.streamers;
-    state.recent = data.recent;
+    const recentPreserveKeys = new Set([...state.recentKeyRevisions]
+      .filter(([, revision]) => revision > recentRevisionAtStart)
+      .map(([key]) => key));
+    const streamerPreserveUids = new Set([...state.streamerKeyRevisions]
+      .filter(([, revision]) => revision > streamerRevisionAtStart)
+      .map(([uid]) => uid));
+    const nextRecent = window.stelchatRealtimeMerge.mergeRecentSnapshot(
+      data.recent, state.recent, recentPreserveKeys,
+    );
+    const nextStreamers = window.stelchatRealtimeMerge.mergeStreamerSnapshot(
+      data.streamers, state.streamers, streamerPreserveUids,
+    );
+    const streamersChanged = JSON.stringify(state.streamers) !== JSON.stringify(nextStreamers);
+    const recentChanged = JSON.stringify(state.recent) !== JSON.stringify(nextRecent);
+    reconcileRecentReadState(nextRecent);
+    state.streamers = nextStreamers;
+    state.recent = nextRecent;
     if (!silent || streamersChanged) renderMemberSelector();
     applySettings(data.settings);
     updateConnection(data.connection || { connected: false, state: 'connecting' });
@@ -657,6 +673,8 @@ window.stelchat.onEvent(({ eventName, payload }) => {
   if (eventName === 'chat') {
     if (state.recent.some((item) => item.id === payload.id)) return;
     const key = recentKey(payload);
+    state.recentRevision += 1;
+    state.recentKeyRevisions.set(key, state.recentRevision);
     state.knownRecentIds.set(key, String(payload.id));
     if (!recentIsBeingRead(key)) state.unreadRecentKeys.add(key);
     saveRecentReadState();
@@ -700,9 +718,17 @@ window.stelchat.onEvent(({ eventName, payload }) => {
       renderMemberSessions();
     }
   } else if (eventName === 'session') {
-    updateRecentSessionStatus(payload);
+    const affectedRecentKeys = state.recent
+      .filter((item) => item.session_id === payload.session_id)
+      .map(recentKey);
+    if (updateRecentSessionStatus(payload)) {
+      state.recentRevision += 1;
+      affectedRecentKeys.forEach((key) => state.recentKeyRevisions.set(key, state.recentRevision));
+    }
     const member = state.streamers.find((item) => item.uid === payload.target_uid || item.uid === payload.channel_id);
     if (member) {
+      state.streamerRevision += 1;
+      state.streamerKeyRevisions.set(member.uid, state.streamerRevision);
       member.is_live = payload.status === 'OPEN';
       member.live_opened_at = payload.opened_at;
       member.live_title = payload.title;
