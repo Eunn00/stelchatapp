@@ -1,6 +1,6 @@
 {
   "name": "stelchat-desktop",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "StelChat Windows companion",
   "main": "main.cjs",
   "author": "StelChat",
@@ -8,7 +8,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "check": "node --check main.cjs && node --check preload.cjs && node --check renderer.js && node --check realtime-merge-policy.js && node --test notification-policy.test.cjs external-link-policy.test.cjs update-policy.test.cjs realtime-merge-policy.test.cjs",
+    "check": "node --check main.cjs && node --check preload.cjs && node --check renderer.js && node --check realtime-merge-policy.js && node --check renderer-state-policy.js && node --test notification-policy.test.cjs event-delivery-policy.test.cjs external-link-policy.test.cjs update-policy.test.cjs realtime-merge-policy.test.cjs renderer-state-policy.test.cjs snapshot-coordinator.test.cjs window-bounds-policy.test.cjs",
     "smoke": "node smoke.cjs",
     "icon": "node make-icon.cjs",
     "dist": "electron-builder --win portable",
@@ -30,7 +30,11 @@
       "external-link-policy.cjs",
       "update-policy.cjs",
       "realtime-merge-policy.js",
+      "renderer-state-policy.js",
       "notification-policy.cjs",
+      "event-delivery-policy.cjs",
+      "snapshot-coordinator.cjs",
+      "window-bounds-policy.cjs",
       "preload.cjs",
       "renderer.js",
       "index.html",

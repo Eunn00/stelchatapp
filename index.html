@@ -73,10 +73,12 @@
 
       <div class="loading" id="loading"><span></span><p>StelChat을 불러오는 중입니다.</p></div>
       <div class="error" id="error" hidden><strong>연결할 수 없습니다.</strong><p>잠시 후 다시 시도해 주세요.</p><button id="retry-button" type="button">다시 시도</button></div>
+      <div class="settings-error" id="settings-error" role="status" hidden>설정을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.</div>
     </main>
 
     <footer><span>© 2026 stelchat</span><button id="footer-site" type="button">웹사이트 열기 ↗</button></footer>
     <script src="realtime-merge-policy.js"></script>
+    <script src="renderer-state-policy.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>

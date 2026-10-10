@@ -1,19 +1,25 @@
 const API_BASE = 'https://stelchat.xyz';
 const state = {
   streamers: [], recent: [], settings: {}, activeTab: 'live',
-  versionStatus: null, updateNoticeAcknowledged: false,
+  versionStatus: null, acknowledgedUpdateVersion: '',
   recentRevision: 0, recentKeyRevisions: new Map(),
   streamerRevision: 0, streamerKeyRevisions: new Map(),
   expandedRecentKey: '',
-  recentPreviews: new Map(), recentPreviewLoading: new Set(),
-  unreadRecentKeys: new Set(), knownRecentIds: new Map(),
+  recentPreviews: new Map(), recentPreviewLoading: new Set(), recentPreviewRequests: new Map(),
+  unreadRecentKeys: new Set(), knownRecentIds: new Map(), recentBaselineReady: false,
   selectedMemberUid: '', memberSessions: [], memberSessionsLoading: false,
+  memberSessionsLoadedUid: '',
   memberSessionsError: '', expandedMemberSessionId: null,
-  memberPreviews: new Map(), memberPreviewLoading: new Set(), memberRequestId: 0,
+  memberPreviews: new Map(), memberPreviewLoading: new Set(), memberPreviewRequests: new Map(),
+  memberRequestId: 0, previewRequestId: 0,
+  memberSessionRevision: 0, memberSessionKeyRevisions: new Map(),
+  snapshotRequestId: 0, lastAppliedSnapshotRequestId: 0,
+  latestForegroundRequestId: 0,
 };
 
 const RECENT_UNREAD_STORAGE_KEY = 'stelchat-unread-recent-keys';
 const RECENT_KNOWN_STORAGE_KEY = 'stelchat-known-recent-ids';
+const RECENT_BASELINE_STORAGE_KEY = 'stelchat-recent-baseline-ready';
 
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value = '') => String(value).replace(/[&<>'"]/g, (character) => ({
@@ -66,7 +72,7 @@ function recentSessionStatusHtml(status) {
   return `<i class="recent-session-status ${isLive ? 'live' : 'ended'}" title="${isLive ? '현재 방송 중' : '종료된 방송'}">${isLive ? 'LIVE' : '종료'}</i>`;
 }
 
-const recentKey = (item) => `${item.session_id}:${item.target_uid}`;
+const { memberPreviewKey, recentKey } = window.stelchatRendererState;
 const recentNotificationMuted = (item) => Boolean(state.settings.mutedChatRooms?.[recentKey(item)]);
 
 function notificationBellIcon(muted) {
@@ -81,9 +87,12 @@ function loadRecentReadState() {
     const known = JSON.parse(localStorage.getItem(RECENT_KNOWN_STORAGE_KEY) || '{}');
     state.unreadRecentKeys = new Set(Array.isArray(unread) ? unread.filter((key) => typeof key === 'string') : []);
     state.knownRecentIds = new Map(Object.entries(known));
+    state.recentBaselineReady = localStorage.getItem(RECENT_BASELINE_STORAGE_KEY) === 'true'
+      || state.knownRecentIds.size > 0;
   } catch {
     state.unreadRecentKeys = new Set();
     state.knownRecentIds = new Map();
+    state.recentBaselineReady = false;
   }
 }
 
@@ -91,6 +100,7 @@ function saveRecentReadState() {
   try {
     localStorage.setItem(RECENT_UNREAD_STORAGE_KEY, JSON.stringify([...state.unreadRecentKeys]));
     localStorage.setItem(RECENT_KNOWN_STORAGE_KEY, JSON.stringify(Object.fromEntries(state.knownRecentIds)));
+    localStorage.setItem(RECENT_BASELINE_STORAGE_KEY, String(state.recentBaselineReady));
   } catch {
     // The unread UI still works for the current app session if local storage is unavailable.
   }
@@ -102,8 +112,6 @@ function recentIsBeingRead(key) {
 }
 
 function updateUnreadRecentUi() {
-  const visibleKeys = new Set(state.recent.map(recentKey));
-  state.unreadRecentKeys = new Set([...state.unreadRecentKeys].filter((key) => visibleKeys.has(key)));
   const count = state.unreadRecentKeys.size;
   const badge = $('#recent-unread-count');
   badge.textContent = '';
@@ -113,10 +121,11 @@ function updateUnreadRecentUi() {
   $('#recent-mark-all-read').title = count ? `읽지 않은 채팅방 ${count}개 모두 확인` : '읽지 않은 채팅이 없습니다';
 }
 
-function markRecentRead(key) {
+function markRecentRead(key, rerender = false) {
   if (!state.unreadRecentKeys.delete(key)) return;
   saveRecentReadState();
-  updateUnreadRecentUi();
+  if (rerender) renderRecent();
+  else updateUnreadRecentUi();
 }
 
 function markAllRecentRead() {
@@ -127,17 +136,59 @@ function markAllRecentRead() {
 }
 
 function reconcileRecentReadState(items) {
-  const hadBaseline = state.knownRecentIds.size > 0;
-  items.forEach((item) => {
-    const key = recentKey(item);
-    const messageId = String(item.id);
-    const knownId = state.knownRecentIds.get(key);
-    if (hadBaseline && knownId && knownId !== messageId && !recentIsBeingRead(key)) {
-      state.unreadRecentKeys.add(key);
-    }
-    state.knownRecentIds.set(key, messageId);
-  });
+  const reconciled = window.stelchatRendererState.reconcileRecentReadState(
+    items, state.knownRecentIds, state.unreadRecentKeys, {
+      baselineReady: state.recentBaselineReady,
+      isBeingRead: recentIsBeingRead,
+    },
+  );
+  state.knownRecentIds = reconciled.knownIds;
+  state.unreadRecentKeys = reconciled.unreadKeys;
+  state.recentBaselineReady = reconciled.baselineReady;
   saveRecentReadState();
+}
+
+function reconcileRealtimeChatReadState(item) {
+  const reconciled = window.stelchatRendererState.reconcileRecentReadState(
+    [item], state.knownRecentIds, state.unreadRecentKeys, {
+      baselineReady: state.recentBaselineReady,
+      establishBaseline: false,
+      markBeforeBaseline: true,
+      isBeingRead: recentIsBeingRead,
+    },
+  );
+  state.knownRecentIds = reconciled.knownIds;
+  state.unreadRecentKeys = reconciled.unreadKeys;
+  state.recentBaselineReady = reconciled.baselineReady;
+  saveRecentReadState();
+}
+
+function memberPreviewStateKey(sessionId, uid = state.selectedMemberUid) {
+  return memberPreviewKey(sessionId, uid);
+}
+
+function memberSessionStateKey(sessionId, uid = state.selectedMemberUid) {
+  return `${sessionId}:${uid}`;
+}
+
+function invalidateRecentPreview(key) {
+  state.recentPreviews.delete(key);
+  state.recentPreviewLoading.delete(key);
+  state.recentPreviewRequests.delete(key);
+}
+
+function invalidateMemberPreview(key) {
+  state.memberPreviews.delete(key);
+  state.memberPreviewLoading.delete(key);
+  state.memberPreviewRequests.delete(key);
+}
+
+function rememberRevision(map, key, revision, limit = 500) {
+  map.delete(key);
+  map.set(key, revision);
+  while (map.size > limit) {
+    map.delete(map.keys().next().value);
+  }
 }
 
 function recentPreviewHtml(item) {
@@ -149,8 +200,7 @@ function recentPreviewHtml(item) {
   if (!preview) return '';
   if (preview.error) return '<div class="recent-preview-state error-copy">채팅을 불러오지 못했습니다. 다시 눌러 주세요.</div>';
   const messages = [...preview.messages]
-    .sort((left, right) => String(left.sent_at).localeCompare(String(right.sent_at))
-      || String(left.id).localeCompare(String(right.id)))
+    .sort(window.stelchatRealtimeMerge.compareMessageOrder)
     .slice(-8);
   const messageHtml = messages.length ? messages.map((message) => `
     <div class="preview-message">
@@ -192,7 +242,7 @@ function renderMemberSelector() {
 }
 
 function memberSessionPreviewHtml(session) {
-  const key = session.id;
+  const key = memberPreviewStateKey(session.id);
   if (state.memberPreviewLoading.has(key)) {
     return '<div class="recent-preview-state"><span></span>채팅을 불러오는 중…</div>';
   }
@@ -200,8 +250,7 @@ function memberSessionPreviewHtml(session) {
   if (!preview) return '';
   if (preview.error) return '<div class="recent-preview-state error-copy">채팅을 불러오지 못했습니다. 다시 눌러 주세요.</div>';
   const messages = [...preview.messages]
-    .sort((left, right) => String(left.sent_at).localeCompare(String(right.sent_at))
-      || String(left.id).localeCompare(String(right.id)))
+    .sort(window.stelchatRealtimeMerge.compareMessageOrder)
     .slice(-20);
   const messageHtml = messages.length ? messages.map((message) => `
     <div class="preview-message">
@@ -246,20 +295,40 @@ function renderMemberSessions() {
 }
 
 async function loadMemberSessions(uid, force = false, background = false) {
-  if (!uid || (!force && state.memberSessions.length && state.selectedMemberUid === uid)) return;
+  if (!uid || (!force && state.memberSessionsLoadedUid === uid)) return;
   if (background && state.memberSessionsLoading) return;
   const requestId = ++state.memberRequestId;
+  const memberRevisionAtStart = state.memberSessionRevision;
   if (!background) {
     state.memberSessionsLoading = true;
     state.memberSessionsError = '';
     renderMemberSessions();
   }
   let shouldRender = false;
+  let previewToRefresh = null;
   try {
     const sessions = await window.stelchat.memberSessions(uid);
     if (requestId !== state.memberRequestId || uid !== state.selectedMemberUid) return;
-    shouldRender = !background || JSON.stringify(state.memberSessions) !== JSON.stringify(sessions);
-    state.memberSessions = sessions;
+    const preserveSessionIds = new Set([...state.memberSessionKeyRevisions]
+      .filter(([key, revision]) => key.endsWith(`:${uid}`) && revision > memberRevisionAtStart)
+      .map(([key]) => Number(key.slice(0, key.indexOf(':')))));
+    const mergedSessions = window.stelchatRealtimeMerge.mergeMemberSessionSnapshot(
+      sessions, state.memberSessions, preserveSessionIds,
+    );
+    for (const session of mergedSessions) {
+      const previous = state.memberSessions.find((item) => item.id === session.id);
+      const key = memberPreviewStateKey(session.id, uid);
+      const changedWhileDisconnected = previous
+        && String(previous.latest_id || '') !== String(session.latest_id || '')
+        && !preserveSessionIds.has(Number(session.id));
+      if (changedWhileDisconnected && state.memberPreviews.has(key)) {
+        invalidateMemberPreview(key);
+        if (state.expandedMemberSessionId === session.id) previewToRefresh = session;
+      }
+    }
+    shouldRender = !background || JSON.stringify(state.memberSessions) !== JSON.stringify(mergedSessions);
+    state.memberSessions = mergedSessions;
+    state.memberSessionsLoadedUid = uid;
     state.memberSessionsError = '';
   } catch {
     if (requestId !== state.memberRequestId || uid !== state.selectedMemberUid) return;
@@ -272,26 +341,48 @@ async function loadMemberSessions(uid, force = false, background = false) {
     if (requestId === state.memberRequestId && uid === state.selectedMemberUid) {
       if (!background) state.memberSessionsLoading = false;
       if (shouldRender) renderMemberSessions();
+      if (previewToRefresh) void expandMemberSession(previewToRefresh);
     }
   }
 }
 
 async function expandMemberSession(session) {
+  const targetUid = state.selectedMemberUid;
+  const key = memberPreviewStateKey(session.id, targetUid);
   state.expandedMemberSessionId = session.id;
   renderMemberSessions();
-  if (state.memberPreviewLoading.has(session.id)) return;
-  if (state.memberPreviews.has(session.id) && !state.memberPreviews.get(session.id).error) return;
-  state.memberPreviews.delete(session.id);
-  state.memberPreviewLoading.add(session.id);
+  if (state.memberPreviewLoading.has(key)) return;
+  if (state.memberPreviews.has(key) && !state.memberPreviews.get(key).error) return;
+  state.memberPreviews.delete(key);
+  state.memberPreviewLoading.add(key);
+  state.memberPreviews.set(key, { messages: [] });
+  const requestToken = ++state.previewRequestId;
+  state.memberPreviewRequests.set(key, requestToken);
   renderMemberSessions();
   try {
-    const preview = await window.stelchat.sessionPreview(session.id, state.selectedMemberUid);
-    state.memberPreviews.set(session.id, { messages: preview.messages || [] });
+    const preview = await window.stelchat.sessionPreview(session.id, targetUid);
+    if (targetUid !== state.selectedMemberUid
+        || state.memberPreviewRequests.get(key) !== requestToken) return;
+    const realtimeMessages = state.memberPreviews.get(key)?.messages || [];
+    state.memberPreviews.set(key, {
+      messages: window.stelchatRealtimeMerge.mergePreviewMessages(
+        preview.messages, realtimeMessages,
+      ),
+    });
   } catch {
-    state.memberPreviews.set(session.id, { messages: [], error: true });
+    if (targetUid === state.selectedMemberUid
+        && state.memberPreviewRequests.get(key) === requestToken) {
+      const realtimeMessages = state.memberPreviews.get(key)?.messages || [];
+      state.memberPreviews.set(key, realtimeMessages.length
+        ? { messages: realtimeMessages } : { messages: [], error: true });
+    }
   } finally {
-    state.memberPreviewLoading.delete(session.id);
-    if (state.expandedMemberSessionId === session.id) renderMemberSessions();
+    if (state.memberPreviewRequests.get(key) !== requestToken) return;
+    state.memberPreviewRequests.delete(key);
+    state.memberPreviewLoading.delete(key);
+    if (targetUid === state.selectedMemberUid && state.expandedMemberSessionId === session.id) {
+      renderMemberSessions();
+    }
   }
 }
 
@@ -350,20 +441,35 @@ async function expandRecent(item) {
   if (state.recentPreviews.has(key) && !state.recentPreviews.get(key).error) return;
   state.recentPreviews.delete(key);
   state.recentPreviewLoading.add(key);
+  state.recentPreviews.set(key, { messages: [] });
+  const requestToken = ++state.previewRequestId;
+  state.recentPreviewRequests.set(key, requestToken);
   renderRecent();
   try {
     const preview = await window.stelchat.sessionPreview(item.session_id, item.target_uid);
-    state.recentPreviews.set(key, { messages: preview.messages || [] });
+    if (state.recentPreviewRequests.get(key) !== requestToken) return;
+    const realtimeMessages = state.recentPreviews.get(key)?.messages || [];
+    state.recentPreviews.set(key, {
+      messages: window.stelchatRealtimeMerge.mergePreviewMessages(
+        preview.messages, realtimeMessages,
+      ),
+    });
   } catch {
-    state.recentPreviews.set(key, { messages: [], error: true });
+    if (state.recentPreviewRequests.get(key) !== requestToken) return;
+    const realtimeMessages = state.recentPreviews.get(key)?.messages || [];
+    state.recentPreviews.set(key, realtimeMessages.length
+      ? { messages: realtimeMessages } : { messages: [], error: true });
   } finally {
+    if (state.recentPreviewRequests.get(key) !== requestToken) return;
+    state.recentPreviewRequests.delete(key);
     state.recentPreviewLoading.delete(key);
     if (state.expandedRecentKey === key) renderRecent();
   }
 }
 
 function bindRecentControls() {
-  document.querySelectorAll('.recent-summary').forEach((element) => {
+  const root = $('#recent-list');
+  root.querySelectorAll('.recent-summary').forEach((element) => {
     const toggle = () => {
       const key = element.dataset.key;
       if (state.expandedRecentKey === key) {
@@ -382,21 +488,21 @@ function bindRecentControls() {
       }
     });
   });
-  document.querySelectorAll('.recent-channel-link').forEach((element) => {
+  root.querySelectorAll('.recent-channel-link').forEach((element) => {
     element.addEventListener('click', (event) => {
       event.stopPropagation();
       window.stelchat.openUrl(element.dataset.url);
     });
   });
-  document.querySelectorAll('.recent-more').forEach((element) => {
+  root.querySelectorAll('.recent-more').forEach((element) => {
     element.addEventListener('click', () => window.stelchat.openUrl(element.dataset.url));
   });
-  document.querySelectorAll('.recent-notification-button').forEach((element) => {
+  root.querySelectorAll('.recent-notification-button').forEach((element) => {
     element.addEventListener('click', async (event) => {
       event.stopPropagation();
       const item = findRecent(`${element.dataset.sessionId}:${element.dataset.targetUid}`);
       if (!item) return;
-      applySettings(await window.stelchat.setChatRoomMuted(
+      await applySettingsUpdate(() => window.stelchat.setChatRoomMuted(
         item.session_id, item.target_uid, !recentNotificationMuted(item),
       ));
       renderRecent();
@@ -460,7 +566,7 @@ function renderNotificationSettings() {
     </article>`).join('');
   document.querySelectorAll('[data-notification-uid]').forEach((input) => {
     input.addEventListener('change', async (event) => {
-      applySettings(await window.stelchat.setMemberNotification(
+      await applySettingsUpdate(() => window.stelchat.setMemberNotification(
         event.target.dataset.notificationUid,
         event.target.dataset.notificationChannel,
         event.target.dataset.notificationEvent,
@@ -527,15 +633,42 @@ function applySettings(settings) {
   renderNotificationSettings();
 }
 
+let settingsErrorTimer;
+function showSettingsError() {
+  const element = $('#settings-error');
+  element.hidden = false;
+  clearTimeout(settingsErrorTimer);
+  settingsErrorTimer = setTimeout(() => { element.hidden = true; }, 4000);
+}
+
+async function applySettingsUpdate(operation) {
+  try {
+    applySettings(await operation());
+    return true;
+  } catch {
+    applySettings(state.settings);
+    showSettingsError();
+    return false;
+  }
+}
+
 async function load(useRefresh = false, silent = false) {
+  const requestId = ++state.snapshotRequestId;
   const recentRevisionAtStart = state.recentRevision;
   const streamerRevisionAtStart = state.streamerRevision;
   if (!silent) {
+    state.latestForegroundRequestId = requestId;
     $('#loading').hidden = false;
     $('#error').hidden = true;
   }
   try {
     const data = useRefresh ? await window.stelchat.refresh() : await window.stelchat.snapshot();
+    if (requestId < state.lastAppliedSnapshotRequestId) return;
+    state.lastAppliedSnapshotRequestId = requestId;
+    $('#error').hidden = true;
+    if (state.latestForegroundRequestId && state.latestForegroundRequestId < requestId) {
+      $('#loading').hidden = true;
+    }
     const recentPreserveKeys = new Set([...state.recentKeyRevisions]
       .filter(([, revision]) => revision > recentRevisionAtStart)
       .map(([key]) => key));
@@ -548,6 +681,18 @@ async function load(useRefresh = false, silent = false) {
     const nextStreamers = window.stelchatRealtimeMerge.mergeStreamerSnapshot(
       data.streamers, state.streamers, streamerPreserveUids,
     );
+    let recentPreviewToRefresh = null;
+    for (const item of nextRecent) {
+      const key = recentKey(item);
+      const previous = findRecent(key);
+      const changedWhileDisconnected = previous
+        && String(previous.id) !== String(item.id)
+        && !recentPreserveKeys.has(key);
+      if (changedWhileDisconnected && state.recentPreviews.has(key)) {
+        invalidateRecentPreview(key);
+        if (state.expandedRecentKey === key) recentPreviewToRefresh = item;
+      }
+    }
     const streamersChanged = JSON.stringify(state.streamers) !== JSON.stringify(nextStreamers);
     const recentChanged = JSON.stringify(state.recent) !== JSON.stringify(nextRecent);
     reconcileRecentReadState(nextRecent);
@@ -559,13 +704,17 @@ async function load(useRefresh = false, silent = false) {
     if (!silent || streamersChanged) renderLive();
     if (!silent || recentChanged) renderRecent();
     if (state.activeTab === 'member' && state.selectedMemberUid) {
-      void loadMemberSessions(state.selectedMemberUid, true, silent);
+      await loadMemberSessions(state.selectedMemberUid, true, silent);
     }
     if (!silent || streamersChanged) bindOpenLinks();
+    if (recentPreviewToRefresh) void expandRecent(recentPreviewToRefresh);
+    return true;
   } catch {
-    if (!silent) $('#error').hidden = false;
+    if (!silent && requestId === state.latestForegroundRequestId
+        && requestId > state.lastAppliedSnapshotRequestId) $('#error').hidden = false;
+    return false;
   } finally {
-    if (!silent) $('#loading').hidden = true;
+    if (!silent && requestId === state.latestForegroundRequestId) $('#loading').hidden = true;
   }
 }
 
@@ -580,18 +729,24 @@ document.querySelectorAll('[data-tab]').forEach((button) => button.addEventListe
   state.activeTab = button.dataset.tab;
   document.querySelectorAll('[data-tab]').forEach((item) => item.classList.toggle('active', item === button));
   document.querySelectorAll('.panel').forEach((panel) => panel.classList.toggle('active', panel.id === `${state.activeTab}-panel`));
-  if (state.activeTab === 'member' && state.selectedMemberUid && !state.memberSessions.length) {
+  if (state.activeTab === 'member' && state.selectedMemberUid
+      && state.memberSessionsLoadedUid !== state.selectedMemberUid) {
     void loadMemberSessions(state.selectedMemberUid);
+  }
+  if (state.activeTab === 'recent' && state.expandedRecentKey && recentIsBeingRead(state.expandedRecentKey)) {
+    markRecentRead(state.expandedRecentKey, true);
   }
 }));
 
 $('#member-chat-select').addEventListener('change', (event) => {
   state.selectedMemberUid = event.target.value;
   state.memberSessions = [];
+  state.memberSessionsLoadedUid = '';
   state.memberSessionsError = '';
   state.expandedMemberSessionId = null;
   state.memberPreviews.clear();
   state.memberPreviewLoading.clear();
+  state.memberPreviewRequests.clear();
   void loadMemberSessions(state.selectedMemberUid, true);
 });
 
@@ -599,12 +754,14 @@ $('#recent-mark-all-read').addEventListener('click', markAllRecentRead);
 
 $('#refresh-button').addEventListener('click', () => load(true));
 $('#retry-button').addEventListener('click', () => load(true));
-$('#desktop-button').addEventListener('click', async () => applySettings(await window.stelchat.setSetting('desktopMode', !state.settings.desktopMode)));
+$('#desktop-button').addEventListener('click', () => applySettingsUpdate(
+  () => window.stelchat.setSetting('desktopMode', !state.settings.desktopMode),
+));
 $('#open-site').addEventListener('click', () => window.stelchat.openUrl(`${API_BASE}/`));
 $('#footer-site').addEventListener('click', () => window.stelchat.openUrl(`${API_BASE}/`));
 function renderUpdateIndicator() {
   const status = state.versionStatus;
-  const showDot = Boolean(status?.updateAvailable && !state.updateNoticeAcknowledged);
+  const showDot = Boolean(status?.updateAvailable && status.latest !== state.acknowledgedUpdateVersion);
   const settingsButton = $('#settings-button');
   settingsButton.classList.toggle('update-available', showDot);
   settingsButton.title = showDot ? '설정 · 최신 버전 있음' : '설정';
@@ -621,14 +778,14 @@ function applyVersionStatus({ current, latest, updateAvailable, checked, release
   update.hidden = !updateAvailable;
   renderUpdateIndicator();
 }
-window.stelchat.appVersionStatus().then(applyVersionStatus);
+window.stelchat.appVersionStatus().then(applyVersionStatus).catch(() => {});
 window.stelchat.onVersionStatus(applyVersionStatus);
 $('#app-update-link').addEventListener('click', () => {
   if (state.versionStatus?.releaseUrl) window.stelchat.openUrl(state.versionStatus.releaseUrl);
 });
 $('#settings-button').addEventListener('click', () => {
   if (state.versionStatus?.updateAvailable) {
-    state.updateNoticeAcknowledged = true;
+    state.acknowledgedUpdateVersion = state.versionStatus.latest;
     renderUpdateIndicator();
   }
   $('#settings-panel').classList.add('open');
@@ -637,68 +794,140 @@ $('#settings-button').addEventListener('click', () => {
 $('#settings-close').addEventListener('click', () => { $('#notification-settings-panel').classList.remove('open'); $('#notification-settings-panel').setAttribute('aria-hidden', 'true'); $('#settings-panel').classList.remove('open'); $('#settings-panel').setAttribute('aria-hidden', 'true'); });
 $('#notification-settings-open').addEventListener('click', () => { $('#notification-settings-panel').classList.add('open'); $('#notification-settings-panel').setAttribute('aria-hidden', 'false'); });
 $('#notification-settings-back').addEventListener('click', () => { $('#notification-settings-panel').classList.remove('open'); $('#notification-settings-panel').setAttribute('aria-hidden', 'true'); });
-$('#notifications-all-on').addEventListener('click', async () => applySettings(await window.stelchat.setAllMemberNotifications(null, null, true)));
-$('#notifications-all-off').addEventListener('click', async () => applySettings(await window.stelchat.setAllMemberNotifications(null, null, false)));
+$('#notifications-all-on').addEventListener('click', () => applySettingsUpdate(
+  () => window.stelchat.setAllMemberNotifications(null, null, true),
+));
+$('#notifications-all-off').addEventListener('click', () => applySettingsUpdate(
+  () => window.stelchat.setAllMemberNotifications(null, null, false),
+));
 $('#notification-sound-test').addEventListener('click', () => playNotificationSound('live'));
 document.querySelectorAll('[data-notification-bulk]').forEach((button) => {
   button.addEventListener('click', async () => {
     const channel = button.dataset.notificationChannel;
     const eventType = button.dataset.notificationEvent;
-    applySettings(await window.stelchat.setAllMemberNotifications(
+    await applySettingsUpdate(() => window.stelchat.setAllMemberNotifications(
       channel, eventType, !allNotificationsEnabled(channel, eventType),
     ));
   });
 });
 
 for (const [id, key] of [['desktop-mode', 'desktopMode'], ['always-on-top', 'alwaysOnTop'], ['dark-mode', 'darkMode'], ['launch-at-login', 'launchAtLogin']]) {
-  $(`#${id}`).addEventListener('change', async (event) => applySettings(await window.stelchat.setSetting(key, event.target.checked)));
+  $(`#${id}`).addEventListener('change', (event) => applySettingsUpdate(
+    () => window.stelchat.setSetting(key, event.target.checked),
+  ));
 }
 
-$('#window-opacity').addEventListener('input', async (event) => {
-  const opacity = Number(event.target.value) / 100;
-  $('#window-opacity-value').textContent = `${event.target.value}%`;
-  applySettings(await window.stelchat.setSetting('opacity', opacity));
-});
-
-$('#notification-volume').addEventListener('input', async (event) => {
-  const volume = Number(event.target.value) / 100;
-  $('#notification-volume-value').textContent = `${event.target.value}%`;
-  applySettings(await window.stelchat.setSetting('notificationVolume', volume));
-});
+const rangeSettingTimers = new Map();
+function bindRangeSetting(id, outputId, key) {
+  const input = $(`#${id}`);
+  const save = () => applySettingsUpdate(
+    () => window.stelchat.setSetting(key, Number(input.value) / 100),
+  );
+  input.addEventListener('input', () => {
+    $(`#${outputId}`).textContent = `${input.value}%`;
+    clearTimeout(rangeSettingTimers.get(key));
+    rangeSettingTimers.set(key, setTimeout(save, 140));
+  });
+  input.addEventListener('change', () => {
+    clearTimeout(rangeSettingTimers.get(key));
+    rangeSettingTimers.delete(key);
+    void save();
+  });
+}
+bindRangeSetting('window-opacity', 'window-opacity-value', 'opacity');
+bindRangeSetting('notification-volume', 'notification-volume-value', 'notificationVolume');
 
 window.stelchat.onConnection(updateConnection);
 window.stelchat.onSettings(applySettings);
 window.stelchat.onNotificationSound(({ type }) => playNotificationSound(type));
+async function resynchronizeAfterEventGap() {
+  state.recentPreviews.clear();
+  state.recentPreviewLoading.clear();
+  state.recentPreviewRequests.clear();
+  state.memberPreviews.clear();
+  state.memberPreviewLoading.clear();
+  state.memberPreviewRequests.clear();
+  const recentKeyToRefresh = state.expandedRecentKey;
+  const memberSessionIdToRefresh = state.expandedMemberSessionId;
+  const synchronized = await load(true, true);
+  if (!synchronized) return;
+  if (recentKeyToRefresh && state.expandedRecentKey === recentKeyToRefresh) {
+    const item = findRecent(recentKeyToRefresh);
+    if (item) void expandRecent(item);
+  }
+  if (memberSessionIdToRefresh && state.expandedMemberSessionId === memberSessionIdToRefresh) {
+    const session = state.memberSessions.find((item) => item.id === memberSessionIdToRefresh);
+    if (session) void expandMemberSession(session);
+  }
+}
+
 window.stelchat.onEvent(({ eventName, payload }) => {
+  if (eventName === 'ready' || eventName === 'resync') {
+    void resynchronizeAfterEventGap();
+    return;
+  }
   if (eventName === 'chat') {
-    if (state.recent.some((item) => item.id === payload.id)) return;
     const key = recentKey(payload);
-    state.recentRevision += 1;
-    state.recentKeyRevisions.set(key, state.recentRevision);
-    state.knownRecentIds.set(key, String(payload.id));
-    if (!recentIsBeingRead(key)) state.unreadRecentKeys.add(key);
-    saveRecentReadState();
-    state.recent = [payload, ...state.recent.filter((item) => recentKey(item) !== key)].slice(0, 20);
-    const preview = state.recentPreviews.get(key);
-    if (preview && !preview.error && !preview.messages.some((message) => message.id === payload.id)) {
-      preview.messages = [...preview.messages, payload].sort((left, right) => left.sent_at.localeCompare(right.sent_at)).slice(-20);
+    const recentAlreadyHasMessage = state.recent.some(
+      (item) => String(item.id) === String(payload.id),
+    );
+    if (!recentAlreadyHasMessage) {
+      const currentRecent = findRecent(key);
+      const isLatest = !currentRecent
+        || window.stelchatRealtimeMerge.compareMessageOrder(payload, currentRecent) >= 0;
+      if (isLatest) {
+        state.recentRevision += 1;
+        rememberRevision(state.recentKeyRevisions, key, state.recentRevision);
+        reconcileRealtimeChatReadState(payload);
+        state.recent = window.stelchatRealtimeMerge.mergeRecentSnapshot(
+          [payload, ...state.recent.filter((item) => recentKey(item) !== key)],
+          [],
+          new Set(),
+        );
+      } else if (state.recentBaselineReady && !recentIsBeingRead(key)) {
+        state.unreadRecentKeys.add(key);
+        saveRecentReadState();
+      }
     }
-    renderRecent();
-    if (payload.target_uid === state.selectedMemberUid && state.memberSessions.length) {
+    const preview = state.recentPreviews.get(key);
+    if (preview && !preview.error
+        && !preview.messages.some((message) => String(message.id) === String(payload.id))) {
+      preview.messages = window.stelchatRealtimeMerge.mergePreviewMessages(
+        preview.messages, [payload],
+      );
+    }
+    if (!recentAlreadyHasMessage || preview) renderRecent();
+    if (payload.target_uid === state.selectedMemberUid) {
+      state.memberSessionRevision += 1;
+      rememberRevision(
+        state.memberSessionKeyRevisions,
+        memberSessionStateKey(payload.session_id, payload.target_uid),
+        state.memberSessionRevision,
+      );
       const existing = state.memberSessions.find((session) => session.id === payload.session_id);
       if (existing) {
-        existing.latest = payload.content;
-        existing.latest_source = payload.source;
-        existing.last_chat_at = payload.sent_at;
-        existing.latest_id = payload.id;
-        existing.latest_message_id = payload.id;
-        existing.message_count = Number(existing.message_count || 0) + 1;
-        state.memberSessions = [existing, ...state.memberSessions.filter((session) => session.id !== existing.id)];
+        const latestCollectedId = Number(existing.latest_id || 0);
+        const payloadId = Number(payload.id || 0);
+        const alreadyCounted = payloadId > 0 && payloadId <= latestCollectedId;
+        const currentLatest = { sent_at: existing.last_chat_at, id: existing.latest_message_id };
+        if (window.stelchatRealtimeMerge.compareMessageOrder(payload, currentLatest) >= 0) {
+          existing.latest = payload.content;
+          existing.latest_source = payload.source;
+          existing.last_chat_at = payload.sent_at;
+          existing.latest_message_id = payload.id;
+        }
+        existing.latest_id = Math.max(latestCollectedId, payloadId) || payload.id;
+        if (!alreadyCounted) existing.message_count = Number(existing.message_count || 0) + 1;
+        state.memberSessions = window.stelchatRealtimeMerge.mergeMemberSessionSnapshot(
+          [existing, ...state.memberSessions.filter((session) => session.id !== existing.id)],
+          [],
+          new Set(),
+        );
       } else {
         state.memberSessions = [{
           id: payload.session_id,
           title: payload.title || '',
-          status: payload.was_live ? 'OPEN' : 'CLOSE',
+          status: payload.status || 'CLOSE',
           channel_id: payload.channel_id,
           channel_name: payload.channel_name,
           channel_avatar_url: payload.channel_avatar_url,
@@ -710,10 +939,12 @@ window.stelchat.onEvent(({ eventName, payload }) => {
           latest_source: payload.source,
         }, ...state.memberSessions].slice(0, 50);
       }
-      const preview = state.memberPreviews.get(payload.session_id);
-      if (preview && !preview.error && !preview.messages.some((message) => message.id === payload.id)) {
-        preview.messages = [...preview.messages, payload]
-          .sort((left, right) => left.sent_at.localeCompare(right.sent_at)).slice(-20);
+      const preview = state.memberPreviews.get(memberPreviewStateKey(payload.session_id, payload.target_uid));
+      if (preview && !preview.error
+          && !preview.messages.some((message) => String(message.id) === String(payload.id))) {
+        preview.messages = window.stelchatRealtimeMerge.mergePreviewMessages(
+          preview.messages, [payload],
+        );
       }
       renderMemberSessions();
     }
@@ -723,21 +954,29 @@ window.stelchat.onEvent(({ eventName, payload }) => {
       .map(recentKey);
     if (updateRecentSessionStatus(payload)) {
       state.recentRevision += 1;
-      affectedRecentKeys.forEach((key) => state.recentKeyRevisions.set(key, state.recentRevision));
+      affectedRecentKeys.forEach((key) => rememberRevision(
+        state.recentKeyRevisions, key, state.recentRevision,
+      ));
     }
     const member = state.streamers.find((item) => item.uid === payload.target_uid || item.uid === payload.channel_id);
-    if (member) {
+    const streamerTransition = member
+      ? window.stelchatRendererState.applySessionEventToStreamer(payload, member)
+      : null;
+    if (streamerTransition?.changed) {
       state.streamerRevision += 1;
-      state.streamerKeyRevisions.set(member.uid, state.streamerRevision);
-      member.is_live = payload.status === 'OPEN';
-      member.live_opened_at = payload.opened_at;
-      member.live_title = payload.title;
-      member.live_category = payload.live_category;
+      rememberRevision(state.streamerKeyRevisions, member.uid, state.streamerRevision, 100);
+      Object.assign(member, streamerTransition.streamer);
       renderLive();
       bindOpenLinks();
     }
     const memberSession = state.memberSessions.find((session) => session.id === payload.session_id);
     if (memberSession) {
+      state.memberSessionRevision += 1;
+      rememberRevision(
+        state.memberSessionKeyRevisions,
+        memberSessionStateKey(payload.session_id),
+        state.memberSessionRevision,
+      );
       memberSession.status = payload.status;
       memberSession.title = payload.title || memberSession.title;
       memberSession.live_category = payload.live_category || memberSession.live_category;
@@ -747,7 +986,14 @@ window.stelchat.onEvent(({ eventName, payload }) => {
 });
 
 window.addEventListener('focus', () => {
-  if (state.expandedRecentKey) markRecentRead(state.expandedRecentKey);
+  if (state.expandedRecentKey && recentIsBeingRead(state.expandedRecentKey)) {
+    markRecentRead(state.expandedRecentKey, true);
+  }
+});
+document.addEventListener('visibilitychange', () => {
+  if (state.expandedRecentKey && recentIsBeingRead(state.expandedRecentKey)) {
+    markRecentRead(state.expandedRecentKey, true);
+  }
 });
 
 setInterval(() => {

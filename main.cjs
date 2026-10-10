@@ -1,15 +1,25 @@
-const { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, shell, Tray } = require('electron');
+const {
+  app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, Tray,
+} = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
+const { fileURLToPath, pathToFileURL } = require('node:url');
 const {
   chatRoomIsMuted, chatRoomKey, liveSessionKey, notificationEventType,
 } = require('./notification-policy.cjs');
 const { createExternalOpenGuard } = require('./external-link-policy.cjs');
 const { isNewerVersion, normalizedVersion } = require('./update-policy.cjs');
+const { normalizedWindowBounds } = require('./window-bounds-policy.cjs');
+const { createEventDeduper, reconnectDelay } = require('./event-delivery-policy.cjs');
+const { createSnapshotCoordinator } = require('./snapshot-coordinator.cjs');
+const { applySessionEventToStreamer, retainSessionWatermark } = require('./renderer-state-policy.js');
 
 const API_BASE = 'https://stelchat.xyz';
 const LATEST_RELEASE_API = 'https://api.github.com/repos/Eunn00/stelchatapp/releases/latest';
 const VERSION_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const VERSION_RETRY_INTERVAL_MS = 15 * 60 * 1000;
+const SSE_CONNECT_TIMEOUT_MS = 15000;
+const SSE_IDLE_TIMEOUT_MS = 55000;
 const WINDOWS_APP_ID = 'xyz.stelchat.desktop';
 const DEFAULT_SETTINGS = {
   alwaysOnTop: false,
@@ -41,6 +51,16 @@ let notificationBaselineReady = false;
 let startupLiveSessions = new Set();
 const shouldOpenExternal = createExternalOpenGuard();
 let versionStatusPromise;
+let cachedVersionStatus;
+let settingsMigrationPending = false;
+let rendererReloadAttempts = 0;
+let rendererReloadTimer;
+let rendererStableTimer;
+let reconnectAttempt = 0;
+const isDuplicateEvent = createEventDeduper();
+const activeNotifications = [];
+const APP_ENTRY_PATH = path.join(__dirname, 'index.html');
+const APP_ENTRY_URL = pathToFileURL(APP_ENTRY_PATH).href;
 
 if (process.platform === 'win32') app.setAppUserModelId(WINDOWS_APP_ID);
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -61,8 +81,8 @@ function normalizedNotificationPreference(value) {
       chat: typeof value.desktop?.chat === 'boolean' ? value.desktop.chat : fallback.desktop.chat,
     },
     sound: {
-      live: Boolean(value.sound?.live),
-      chat: Boolean(value.sound?.chat),
+      live: typeof value.sound?.live === 'boolean' ? value.sound.live : fallback.sound.live,
+      chat: typeof value.sound?.chat === 'boolean' ? value.sound.chat : fallback.sound.chat,
     },
   };
 }
@@ -101,10 +121,16 @@ function ensureWindowsPortableShortcut() {
 }
 
 function loadSettings() {
+  let stored = {};
   try {
-    settings = { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf8')) };
+    const parsed = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) stored = parsed;
   } catch {
-    settings = { ...DEFAULT_SETTINGS };
+    // A missing or damaged settings file falls back to safe defaults.
+  }
+  settings = { ...DEFAULT_SETTINGS, ...stored };
+  for (const key of BOOLEAN_SETTINGS) {
+    settings[key] = typeof stored[key] === 'boolean' ? stored[key] : DEFAULT_SETTINGS[key];
   }
   settings.opacity = Math.min(1, Math.max(0.4, Number(settings.opacity) || 1));
   const notificationVolume = Number(settings.notificationVolume);
@@ -114,9 +140,19 @@ function loadSettings() {
   settings.mutedChatRooms = normalizedMutedChatRooms(settings.mutedChatRooms);
 }
 
-function saveSettings() {
-  fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-  fs.writeFileSync(settingsPath(), JSON.stringify(settings, null, 2));
+function saveSettings(nextSettings = settings) {
+  const targetPath = settingsPath();
+  const temporaryPath = `${targetPath}.${process.pid}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(temporaryPath, JSON.stringify(nextSettings, null, 2));
+    fs.renameSync(temporaryPath, targetPath);
+    return true;
+  } catch (error) {
+    try { fs.rmSync(temporaryPath, { force: true }); } catch { /* Best-effort cleanup. */ }
+    console.warn('Could not persist settings:', error.message);
+    return false;
+  }
 }
 
 function memberUrl(initials) {
@@ -194,16 +230,28 @@ async function fetchVersionStatus() {
 }
 
 function versionStatus(force = false) {
-  if (force || !versionStatusPromise) versionStatusPromise = fetchVersionStatus();
+  if (versionStatusPromise) return versionStatusPromise;
+  if (!force && cachedVersionStatus) return Promise.resolve(cachedVersionStatus);
+  versionStatusPromise = fetchVersionStatus()
+    .then((status) => {
+      cachedVersionStatus = status;
+      return status;
+    })
+    .finally(() => { versionStatusPromise = null; });
   return versionStatusPromise;
 }
 
 function startVersionChecks() {
-  clearInterval(versionCheckTimer);
-  versionCheckTimer = setInterval(async () => {
+  clearTimeout(versionCheckTimer);
+  const check = async () => {
     const status = await versionStatus(true);
     sendToRenderer('version-status', status);
-  }, VERSION_CHECK_INTERVAL_MS);
+    versionCheckTimer = setTimeout(
+      check,
+      status.checked ? VERSION_CHECK_INTERVAL_MS : VERSION_RETRY_INTERVAL_MS,
+    );
+  };
+  versionCheckTimer = setTimeout(check, VERSION_RETRY_INTERVAL_MS);
 }
 
 async function fetchJson(endpoint) {
@@ -221,16 +269,21 @@ async function fetchJson(endpoint) {
   }
 }
 
-async function snapshot() {
-  const [streamers, recent] = await Promise.all([
+async function fetchSnapshot() {
+  const [snapshotStreamers, recent] = await Promise.all([
     fetchJson('/api/streamers'),
     fetchJson('/api/recent?limit=20'),
   ]);
+  const streamers = snapshotStreamers.map((streamer) => (
+    retainSessionWatermark(streamer, streamerByUid.get(streamer.uid))
+  ));
   streamerByUid = new Map(streamers.map((streamer) => [streamer.uid, streamer]));
   if (!notificationBaselineReady) {
     startupLiveSessions = new Set(streamers
       .filter((streamer) => streamer.is_live)
-      .map((streamer) => liveSessionKey(streamer.uid, streamer.live_opened_at)));
+      .map((streamer) => liveSessionKey(
+        streamer.uid, streamer.live_opened_at, streamer.latest_session_id,
+      )));
     notificationBaselineReady = true;
   }
   const notificationPreferences = { ...(settings.notificationPreferences || {}) };
@@ -240,15 +293,25 @@ async function snapshot() {
     if (JSON.stringify(notificationPreferences[streamer.uid]) !== JSON.stringify(normalized)) migrated = true;
     notificationPreferences[streamer.uid] = normalized;
   }
-  if (migrated) {
-    settings.notificationPreferences = notificationPreferences;
-    saveSettings();
+  if (migrated || settingsMigrationPending) {
+    const nextSettings = { ...settings, notificationPreferences };
+    settingsMigrationPending = !saveSettings(nextSettings);
+    settings = nextSettings;
   }
   return { streamers, recent, settings, connection: connectionStatus };
 }
 
+const snapshotCoordinator = createSnapshotCoordinator(fetchSnapshot);
+
 function sendToRenderer(channel, payload) {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return false;
+  try {
+    mainWindow.webContents.send(channel, payload);
+    return true;
+  } catch (error) {
+    console.warn(`Could not send renderer event ${channel}:`, error.message);
+    return false;
+  }
 }
 
 function updateConnection(status) {
@@ -256,7 +319,13 @@ function updateConnection(status) {
   sendToRenderer('connection', status);
 }
 
-function dispatchNotification(eventName, payload) {
+function dispatchNotification(eventName, payload, sessionTransition = null) {
+  if (eventName === 'session' && !sessionTransition?.accepted) return;
+  if (eventName === 'session' && payload.status === 'OPEN' && !sessionTransition.notify) return;
+  if (eventName === 'session' && payload.status === 'CLOSE') {
+    startupLiveSessions.delete(liveSessionKey(payload.channel_id, payload.opened_at, payload.session_id));
+    startupLiveSessions.delete(liveSessionKey(payload.channel_id, payload.opened_at));
+  }
   const notificationEvent = notificationEventType(
     eventName, payload, notificationBaselineReady, startupLiveSessions,
   );
@@ -269,13 +338,27 @@ function dispatchNotification(eventName, payload) {
   const targetName = eventName === 'chat' ? (payload.target_name || '멤버') : liveMember.name;
   const targetInitials = eventName === 'chat' ? payload.target_initials : liveMember.initials;
   if (preference.desktop[notificationEvent] && Notification.isSupported()) {
-    const notification = new Notification({
-      title: liveMember ? `${targetName} 방송 시작` : `${targetName}의 새 채팅`,
-      body: liveMember ? (payload.title || '방송을 시작했어요.') : `${payload.channel_name || '채팅방'} · ${payload.content || ''}`,
-      silent: true,
-    });
-    notification.on('click', () => openExternalOnce(memberUrl(targetInitials)));
-    notification.show();
+    try {
+      const notification = new Notification({
+        title: liveMember ? `${targetName} 방송 시작` : `${targetName}의 새 채팅`,
+        body: liveMember ? (payload.title || '방송을 시작했어요.') : `${payload.channel_name || '채팅방'} · ${payload.content || ''}`,
+        silent: true,
+      });
+      const forgetNotification = () => {
+        const index = activeNotifications.indexOf(notification);
+        if (index >= 0) activeNotifications.splice(index, 1);
+      };
+      notification.once('click', () => {
+        openExternalOnce(memberUrl(targetInitials));
+        forgetNotification();
+      });
+      notification.once('failed', forgetNotification);
+      activeNotifications.push(notification);
+      if (activeNotifications.length > 500) activeNotifications.shift();
+      notification.show();
+    } catch (error) {
+      console.warn('Could not display Windows notification:', error.message);
+    }
   }
   if (preference.sound[notificationEvent]) {
     sendToRenderer('notification-sound', { type: notificationEvent });
@@ -298,23 +381,47 @@ function parseSseBlock(block) {
 async function connectEvents() {
   clearTimeout(reconnectTimer);
   eventAbortController?.abort();
-  eventAbortController = new AbortController();
+  const controller = new AbortController();
+  eventAbortController = controller;
+  let connectTimeout = setTimeout(() => controller.abort(), SSE_CONNECT_TIMEOUT_MS);
+  let idleTimeout;
+  let retryAfterMs = 0;
+  let connectedAt = 0;
+  const resetIdleTimeout = () => {
+    clearTimeout(idleTimeout);
+    idleTimeout = setTimeout(() => controller.abort(), SSE_IDLE_TIMEOUT_MS);
+  };
   updateConnection({ connected: false, state: 'connecting' });
   try {
     const headers = { Accept: 'text/event-stream', 'User-Agent': 'StelChat-Desktop/0.1' };
     if (lastEventId) headers['Last-Event-ID'] = lastEventId;
     const response = await fetch(`${API_BASE}/api/events`, {
       headers,
-      signal: eventAbortController.signal,
+      signal: controller.signal,
     });
-    if (!response.ok || !response.body) throw new Error(`SSE HTTP ${response.status}`);
+    clearTimeout(connectTimeout);
+    connectTimeout = null;
+    if (!response.ok || !response.body) {
+      const retryAfterHeader = response.headers.get('retry-after');
+      const retryAfterSeconds = Number(retryAfterHeader);
+      if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+        retryAfterMs = retryAfterSeconds * 1000;
+      } else if (retryAfterHeader) {
+        const retryAt = Date.parse(retryAfterHeader);
+        if (Number.isFinite(retryAt)) retryAfterMs = Math.max(0, retryAt - Date.now());
+      }
+      throw new Error(`SSE HTTP ${response.status}`);
+    }
     updateConnection({ connected: true, state: 'connected' });
+    connectedAt = Date.now();
+    resetIdleTimeout();
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      resetIdleTimeout();
       buffer += decoder.decode(value, { stream: true });
       const blocks = buffer.split(/\r?\n\r?\n/);
       buffer = blocks.pop() || '';
@@ -324,8 +431,17 @@ async function connectEvents() {
           const event = parseSseBlock(block);
           if (!event) continue;
           if (event.eventId) lastEventId = event.eventId;
+          if (isDuplicateEvent(event.eventName, event.payload)) continue;
+          let sessionTransition = null;
+          if (event.eventName === 'session') {
+            const member = streamerByUid.get(event.payload?.channel_id);
+            sessionTransition = applySessionEventToStreamer(event.payload, member);
+            if (sessionTransition.accepted && member) {
+              streamerByUid.set(member.uid, sessionTransition.streamer);
+            }
+          }
           sendToRenderer('stelchat-event', event);
-          dispatchNotification(event.eventName, event.payload);
+          dispatchNotification(event.eventName, event.payload, sessionTransition);
         } catch (error) {
           console.warn('Ignored malformed SSE event:', error.message);
         }
@@ -333,14 +449,20 @@ async function connectEvents() {
     }
     throw new Error('SSE stream ended');
   } catch (error) {
-    if (error.name === 'AbortError' || quitting) return;
+    if (quitting || controller !== eventAbortController) return;
     updateConnection({ connected: false, state: 'reconnecting' });
-    reconnectTimer = setTimeout(connectEvents, 3000);
+    if (connectedAt && Date.now() - connectedAt >= 60000) reconnectAttempt = 0;
+    const delay = reconnectDelay(reconnectAttempt, retryAfterMs);
+    reconnectAttempt += 1;
+    reconnectTimer = setTimeout(connectEvents, delay);
+  } finally {
+    clearTimeout(connectTimeout);
+    clearTimeout(idleTimeout);
   }
 }
 
 function showWindow() {
-  if (!mainWindow) createWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow();
   mainWindow.show();
   mainWindow.focus();
 }
@@ -375,40 +497,69 @@ function updateTrayMenu() {
     { type: 'separator' },
     {
       label: '항상 위에 표시', type: 'checkbox', checked: settings.alwaysOnTop,
-      click: (item) => setSetting('alwaysOnTop', item.checked),
+      click: (item) => {
+        try { setSetting('alwaysOnTop', item.checked); } catch (error) {
+          console.warn('Could not update tray setting:', error.message);
+          updateTrayMenu();
+        }
+      },
     },
     {
       label: '바탕화면 모드', type: 'checkbox', checked: settings.desktopMode,
-      click: (item) => setSetting('desktopMode', item.checked),
+      click: (item) => {
+        try { setSetting('desktopMode', item.checked); } catch (error) {
+          console.warn('Could not update tray setting:', error.message);
+          updateTrayMenu();
+        }
+      },
     },
     { type: 'separator' },
     { label: '종료', click: () => { quitting = true; app.quit(); } },
   ]));
 }
 
+function applyLoginItemSetting(enabled) {
+  app.setLoginItemSettings({
+    openAtLogin: Boolean(enabled),
+    path: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
+  });
+}
+
+function commitSettings(nextSettings) {
+  if (!saveSettings(nextSettings)) throw new Error('설정을 저장하지 못했습니다.');
+  settings = nextSettings;
+  settingsMigrationPending = false;
+  return settings;
+}
+
 function setSetting(key, value) {
+  const nextSettings = { ...settings };
   if (key === 'opacity') {
     const opacity = Number(value);
     if (!Number.isFinite(opacity)) return settings;
-    settings.opacity = Math.min(1, Math.max(0.4, opacity));
+    nextSettings.opacity = Math.min(1, Math.max(0.4, opacity));
   } else if (key === 'notificationVolume') {
     const notificationVolume = Number(value);
     if (!Number.isFinite(notificationVolume)) return settings;
-    settings.notificationVolume = Math.min(1, Math.max(0, notificationVolume));
+    nextSettings.notificationVolume = Math.min(1, Math.max(0, notificationVolume));
   } else {
     if (!BOOLEAN_SETTINGS.has(key)) return settings;
-    settings[key] = Boolean(value);
+    nextSettings[key] = Boolean(value);
   }
-  if (key === 'desktopMode' && settings.desktopMode) settings.alwaysOnTop = false;
-  if (key === 'alwaysOnTop' && settings.alwaysOnTop) settings.desktopMode = false;
-  saveSettings();
-  applyWindowBehavior();
+  if (key === 'desktopMode' && nextSettings.desktopMode) nextSettings.alwaysOnTop = false;
+  if (key === 'alwaysOnTop' && nextSettings.alwaysOnTop) nextSettings.desktopMode = false;
   if (key === 'launchAtLogin') {
-    app.setLoginItemSettings({
-      openAtLogin: settings.launchAtLogin,
-      path: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
-    });
+    applyLoginItemSetting(nextSettings.launchAtLogin);
   }
+  try {
+    commitSettings(nextSettings);
+  } catch (error) {
+    if (key === 'launchAtLogin') {
+      try { applyLoginItemSetting(settings.launchAtLogin); } catch { /* Best-effort rollback. */ }
+    }
+    throw error;
+  }
+  applyWindowBehavior();
   updateTrayMenu();
   sendToRenderer('settings', settings);
   return settings;
@@ -423,16 +574,19 @@ function setMemberNotification(uid, channel, eventType, value) {
     ...current,
     [channel]: { ...current[channel], [eventType]: Boolean(value) },
   };
-  settings.notificationPreferences = notificationPreferences;
-  settings.notificationMembers = {
+  const nextSettings = {
+    ...settings,
+    notificationPreferences,
+    notificationMembers: {
     ...(settings.notificationMembers || {}),
     [uid]: notificationPreferences[uid].desktop.live || notificationPreferences[uid].desktop.chat,
+    },
   };
-  settings.notifications = [...streamerByUid.keys()].some((memberUid) => {
+  nextSettings.notifications = [...streamerByUid.keys()].some((memberUid) => {
     const preference = normalizedNotificationPreference(notificationPreferences[memberUid]);
     return preference.desktop.live || preference.desktop.chat;
   });
-  saveSettings();
+  commitSettings(nextSettings);
   sendToRenderer('settings', settings);
   return settings;
 }
@@ -451,12 +605,15 @@ function setAllMemberNotifications(channel, eventType, value) {
     }
     notificationPreferences[uid] = current;
   }
-  settings.notificationPreferences = notificationPreferences;
-  settings.notificationMembers = Object.fromEntries([...streamerByUid.keys()].map((uid) => [
+  const notificationMembers = Object.fromEntries([...streamerByUid.keys()].map((uid) => [
     uid, notificationPreferences[uid].desktop.live || notificationPreferences[uid].desktop.chat,
   ]));
-  settings.notifications = [...streamerByUid.keys()].some((uid) => settings.notificationMembers[uid]);
-  saveSettings();
+  commitSettings({
+    ...settings,
+    notificationPreferences,
+    notificationMembers,
+    notifications: [...streamerByUid.keys()].some((uid) => notificationMembers[uid]),
+  });
   sendToRenderer('settings', settings);
   return settings;
 }
@@ -467,15 +624,16 @@ function setChatRoomMuted(sessionId, targetUid, muted) {
   const mutedChatRooms = { ...normalizedMutedChatRooms(settings.mutedChatRooms) };
   if (muted) mutedChatRooms[key] = Date.now();
   else delete mutedChatRooms[key];
-  settings.mutedChatRooms = normalizedMutedChatRooms(mutedChatRooms);
-  saveSettings();
+  commitSettings({ ...settings, mutedChatRooms: normalizedMutedChatRooms(mutedChatRooms) });
   sendToRenderer('settings', settings);
   return settings;
 }
 
 function createWindow() {
-  const savedBounds = settings.windowBounds && Number.isFinite(settings.windowBounds.x)
-    && Number.isFinite(settings.windowBounds.y) ? settings.windowBounds : {};
+  const savedBounds = normalizedWindowBounds(
+    settings.windowBounds,
+    screen.getAllDisplays().map((display) => display.workArea),
+  );
   mainWindow = new BrowserWindow({
     width: 410,
     height: 690,
@@ -496,8 +654,26 @@ function createWindow() {
     },
   });
   applyWindowBehavior();
-  mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  const scheduleRendererReload = (reason) => {
+    if (quitting || !mainWindow || mainWindow.isDestroyed()
+        || rendererReloadTimer || rendererReloadAttempts >= 2) return;
+    rendererReloadAttempts += 1;
+    console.warn('Scheduling renderer reload:', reason);
+    rendererReloadTimer = setTimeout(() => {
+      rendererReloadTimer = null;
+      if (!quitting && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadFile(APP_ENTRY_PATH).catch((error) => {
+          scheduleRendererReload(error.message);
+        });
+      }
+    }, 1000);
+  };
+  mainWindow.loadFile(APP_ENTRY_PATH).catch((error) => {
+    console.warn('Could not load the renderer:', error.message);
+    scheduleRendererReload(error.message);
+  });
   mainWindow.once('ready-to-show', () => {
+    rendererReloadAttempts = 0;
     mainWindow.show();
     applyWindowsTaskbarDetails();
   });
@@ -506,6 +682,14 @@ function createWindow() {
       event.preventDefault();
       mainWindow.hide();
     }
+  });
+  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.webContents.on('did-finish-load', () => {
+    clearTimeout(rendererStableTimer);
+    rendererStableTimer = setTimeout(() => { rendererReloadAttempts = 0; }, 30000);
+  });
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _url, isMainFrame) => {
+    if (isMainFrame && errorCode !== -3) scheduleRendererReload(errorDescription);
   });
   mainWindow.on('minimize', (event) => {
     if (settings.desktopMode) {
@@ -517,8 +701,8 @@ function createWindow() {
     clearTimeout(boundsSaveTimer);
     boundsSaveTimer = setTimeout(() => {
       if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
-      settings.windowBounds = mainWindow.getBounds();
-      saveSettings();
+      const nextSettings = { ...settings, windowBounds: mainWindow.getBounds() };
+      if (saveSettings(nextSettings)) settings = nextSettings;
     }, 350);
   };
   mainWindow.on('move', rememberBounds);
@@ -526,6 +710,16 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     openExternalOnce(url);
     return { action: 'deny' };
+  });
+  const preventUnexpectedNavigation = (event, url) => {
+    if (url !== APP_ENTRY_URL) event.preventDefault();
+  };
+  mainWindow.webContents.on('will-navigate', preventUnexpectedNavigation);
+  mainWindow.webContents.on('will-redirect', preventUnexpectedNavigation);
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    if (quitting || !mainWindow || mainWindow.isDestroyed()) return;
+    console.warn('Renderer process stopped:', details.reason);
+    scheduleRendererReload(details.reason);
   });
 }
 
@@ -537,18 +731,23 @@ function createTray() {
   updateTrayMenu();
 }
 
-const updatePreviewMode = process.env.STELCHAT_UPDATE_PREVIEW === '1';
+const updatePreviewMode = process.env.STELCHAT_UPDATE_PREVIEW === '1'
+  && (!app.isPackaged || process.env.STELCHAT_TEST_INSTANCE === '1');
 const gotLock = updatePreviewMode || app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
 else {
   app.on('second-instance', showWindow);
   app.whenReady().then(() => {
     loadSettings();
+    try { applyLoginItemSetting(settings.launchAtLogin); } catch (error) {
+      console.warn('Could not reconcile launch-at-login:', error.message);
+    }
     ensureWindowsPortableShortcut();
     createWindow();
     createTray();
     connectEvents();
     startVersionChecks();
+    powerMonitor.on('resume', () => connectEvents());
   });
 }
 
@@ -556,31 +755,49 @@ app.on('window-all-closed', () => {});
 app.on('before-quit', () => {
   quitting = true;
   clearTimeout(reconnectTimer);
-  clearInterval(versionCheckTimer);
+  clearTimeout(versionCheckTimer);
+  clearTimeout(rendererReloadTimer);
+  clearTimeout(rendererStableTimer);
   eventAbortController?.abort();
 });
 
-ipcMain.handle('snapshot', snapshot);
-ipcMain.handle('refresh', snapshot);
-ipcMain.handle('member-sessions', (_event, uid) => {
+function trustedIpcEvent(event) {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return false;
+  try {
+    return path.resolve(fileURLToPath(event.senderFrame.url)) === path.resolve(APP_ENTRY_PATH);
+  } catch {
+    return false;
+  }
+}
+
+function handleTrusted(channel, handler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!trustedIpcEvent(event)) throw new Error('Untrusted IPC request');
+    return handler(...args);
+  });
+}
+
+handleTrusted('snapshot', snapshotCoordinator.snapshot);
+handleTrusted('refresh', snapshotCoordinator.refresh);
+handleTrusted('member-sessions', (uid) => {
   if (typeof uid !== 'string' || !streamerByUid.has(uid)) {
     throw new Error('Invalid member sessions request');
   }
   return fetchJson(`/api/streamers/${encodeURIComponent(uid)}/sessions?limit=50`);
 });
-ipcMain.handle('session-preview', (_event, sessionId, targetUid) => {
+handleTrusted('session-preview', (sessionId, targetUid) => {
   const numericSessionId = Number(sessionId);
   if (!Number.isInteger(numericSessionId) || numericSessionId < 1 || typeof targetUid !== 'string' || !targetUid) {
     throw new Error('Invalid session preview request');
   }
   return fetchJson(`/api/sessions/${numericSessionId}?target_uid=${encodeURIComponent(targetUid)}&limit=20`);
 });
-ipcMain.handle('open-url', (_event, url) => {
+handleTrusted('open-url', (url) => {
   openExternalOnce(url);
 });
-ipcMain.handle('app-version-status', versionStatus);
-ipcMain.handle('set-setting', (_event, key, value) => setSetting(key, value));
-ipcMain.handle('set-member-notification', (_event, uid, channel, eventType, value) => setMemberNotification(uid, channel, eventType, value));
-ipcMain.handle('set-all-member-notifications', (_event, channel, eventType, value) => setAllMemberNotifications(channel, eventType, value));
-ipcMain.handle('set-chat-room-muted', (_event, sessionId, targetUid, muted) => setChatRoomMuted(sessionId, targetUid, muted));
-ipcMain.handle('hide-window', () => mainWindow?.hide());
+handleTrusted('app-version-status', () => versionStatus(false));
+handleTrusted('set-setting', (key, value) => setSetting(key, value));
+handleTrusted('set-member-notification', (uid, channel, eventType, value) => setMemberNotification(uid, channel, eventType, value));
+handleTrusted('set-all-member-notifications', (channel, eventType, value) => setAllMemberNotifications(channel, eventType, value));
+handleTrusted('set-chat-room-muted', (sessionId, targetUid, muted) => setChatRoomMuted(sessionId, targetUid, muted));
+handleTrusted('hide-window', () => mainWindow?.hide());

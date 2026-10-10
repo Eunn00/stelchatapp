@@ -1,5 +1,5 @@
-function liveSessionKey(uid, openedAt) {
-  return `${uid}:${openedAt || ''}`;
+function liveSessionKey(uid, openedAt, sessionId = null) {
+  return `${uid}:${sessionId || 'unknown'}:${openedAt || ''}`;
 }
 
 function chatRoomKey(sessionId, targetUid) {
@@ -15,10 +15,16 @@ function chatRoomIsMuted(payload, mutedChatRooms) {
 }
 
 function notificationEventType(eventName, payload, baselineReady, startupLiveSessions) {
-  if (!baselineReady) return null;
   if (eventName === 'chat') return 'chat';
-  if (eventName !== 'session' || payload.status !== 'OPEN' || payload.previous_status === 'OPEN') return null;
-  if (startupLiveSessions.has(liveSessionKey(payload.channel_id, payload.opened_at))) return null;
+  if (!baselineReady) return null;
+  if (eventName !== 'session' || payload.superseded
+      || payload.status !== 'OPEN' || payload.previous_status === 'OPEN'
+      || !Number.isSafeInteger(Number(payload.session_id)) || Number(payload.session_id) < 1
+      || typeof payload.channel_id !== 'string' || !payload.channel_id
+      || typeof payload.opened_at !== 'string' || !payload.opened_at) return null;
+  if (startupLiveSessions.has(liveSessionKey(
+    payload.channel_id, payload.opened_at, payload.session_id,
+  )) || startupLiveSessions.has(liveSessionKey(payload.channel_id, payload.opened_at))) return null;
   return 'live';
 }
 

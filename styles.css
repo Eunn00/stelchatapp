@@ -168,6 +168,8 @@ main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .loading p, .error p { font-size: 11px; }
 .error strong { color: #625c64; font-size: 14px; }
 .error button { height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: #788ce2; color: white; cursor: pointer; font-size: 11px; }
+.settings-error { position: absolute; left: 16px; right: 16px; bottom: 12px; z-index: 9; padding: 9px 11px; border: 1px solid rgba(190,80,90,.2); border-radius: 9px; background: #fff1f2; color: #a34e56; box-shadow: 0 5px 18px rgba(60,30,35,.12); font-size: 10px; font-weight: 700; text-align: center; }
+.settings-error[hidden] { display: none; }
 footer { height: 34px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(60,55,70,.08); background: rgba(255,255,255,.66); color: #aaa5aa; font-size: 9px; }
 footer button { padding: 0; border: 0; background: none; color: #7386d9; cursor: pointer; font-size: 9px; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -253,6 +255,7 @@ footer button { padding: 0; border: 0; background: none; color: #7386d9; cursor:
 :root[data-theme="dark"] .error { background: #17181d; color: #918e98; }
 :root[data-theme="dark"] .loading span { border-color: #3b3d46; border-top-color: #8fa1ec; }
 :root[data-theme="dark"] .error strong { color: #d2d0d6; }
+:root[data-theme="dark"] .settings-error { border-color: rgba(226,112,121,.25); background: #3a252a; color: #f0a8ae; }
 :root[data-theme="dark"] footer { border-top-color: rgba(255,255,255,.07); background: rgba(27,28,34,.76); color: #85828b; }
 :root[data-theme="dark"] footer button { color: #91a3eb; }
 :root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #45464f; background-clip: padding-box; }

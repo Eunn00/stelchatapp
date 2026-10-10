@@ -1,5 +1,6 @@
 async function inspectRenderer() {
-  const pages = await fetch('http://127.0.0.1:9222/json').then((response) => response.json());
+  const devtoolsPort = Number(process.env.DEVTOOLS_PORT || 9222);
+  const pages = await fetch(`http://127.0.0.1:${devtoolsPort}/json`).then((response) => response.json());
   const page = pages.find((item) => item.type === 'page' && item.title === 'StelChat');
   if (!page) throw new Error('StelChat renderer was not found');
 
@@ -247,7 +248,7 @@ async function inspectRenderer() {
             };
             if (first) {
               state.expandedMemberSessionId = first.id;
-              state.memberPreviews.set(first.id, { messages: [
+              state.memberPreviews.set(memberPreviewStateKey(first.id, member.uid), { messages: [
                 { id: '12', content: 'member-2', sent_at: '2026-10-08T12:00:02+09:00' },
                 { id: '11', content: 'member-1', sent_at: '2026-10-08T12:00:01+09:00' },
               ] });
@@ -283,6 +284,9 @@ async function inspectRenderer() {
             })(),
           },
           notificationPanelOpens: (() => { document.querySelector('#notification-settings-open').click(); return document.querySelector('#notification-settings-panel').classList.contains('open'); })(),
+          settingsFailureUi: window.__settingsFailureTest || null,
+          securityUi: window.__securityTest || null,
+          settingsErrorVisible: !document.querySelector('#settings-error').hidden,
           desktopMode: document.querySelector('#desktop-button').classList.contains('enabled'),
           bodyLength: document.body.innerText.length
         });
@@ -292,8 +296,48 @@ async function inspectRenderer() {
       },
     }));
     socket.addEventListener('open', () => {
-      if (process.env.TEST_NOTIFICATION_SETTINGS === '1' || process.env.RESET_NOTIFICATIONS === '1') {
-        const expression = process.env.TEST_NOTIFICATION_SETTINGS === '1'
+      if (process.env.EXPECT_SETTINGS_FAILURE === '1'
+          || process.env.SECURITY_TEST === '1'
+          || process.env.PERSIST_SETTINGS_TEST === '1'
+          || process.env.TEST_NOTIFICATION_SETTINGS === '1' || process.env.RESET_NOTIFICATIONS === '1') {
+        const expression = process.env.EXPECT_SETTINGS_FAILURE === '1'
+          ? `(async () => {
+              const original = Boolean(state.settings.darkMode);
+              const input = document.querySelector('#dark-mode');
+              input.checked = !original;
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+              await new Promise((resolve) => setTimeout(resolve, 300));
+              window.__settingsFailureTest = {
+                original,
+                stored: Boolean(state.settings.darkMode),
+                checked: input.checked,
+                errorVisible: !document.querySelector('#settings-error').hidden,
+              };
+              return true;
+            })()`
+          : process.env.SECURITY_TEST === '1'
+          ? `(async () => {
+              let invalidMemberRejected = false;
+              let invalidPreviewRejected = false;
+              try { await window.stelchat.memberSessions('invalid-member'); } catch { invalidMemberRejected = true; }
+              try { await window.stelchat.sessionPreview(0, ''); } catch { invalidPreviewRejected = true; }
+              const before = location.href;
+              location.href = 'https://example.com/blocked-navigation';
+              await new Promise((resolve) => setTimeout(resolve, 300));
+              window.__securityTest = {
+                invalidMemberRejected,
+                invalidPreviewRejected,
+                navigationBlocked: location.href === before,
+              };
+              return true;
+            })()`
+          : process.env.PERSIST_SETTINGS_TEST === '1'
+          ? `(async () => {
+              await window.stelchat.setSetting('opacity', 0.85);
+              await window.stelchat.setSetting('darkMode', true);
+              return true;
+            })()`
+          : process.env.TEST_NOTIFICATION_SETTINGS === '1'
           ? `(async () => {
               const uid = state.streamers[0].uid;
               const originalVolume = state.settings.notificationVolume;
@@ -424,6 +468,15 @@ async function inspectRenderer() {
       || result.tabBadgeColors.live === result.tabBadgeColors.unread
       || (process.env.EXPECT_DEFAULT_NOTIFICATIONS === '1'
         && result.notificationSummary !== 'Windows 0명 · 소리 0명')
+      || (process.env.EXPECT_SETTINGS_FAILURE === '1'
+        && (!result.settingsFailureUi?.errorVisible
+          || result.settingsFailureUi.stored !== result.settingsFailureUi.original
+          || result.settingsFailureUi.checked !== result.settingsFailureUi.original))
+      || (process.env.SECURITY_TEST === '1'
+        && (!result.securityUi?.invalidMemberRejected
+          || !result.securityUi.invalidPreviewRejected
+          || !result.securityUi.navigationBlocked))
+      || (process.env.EXPECT_SETTINGS_FAILURE !== '1' && result.settingsErrorVisible)
       || !result.notificationPanelOpens || result.bodyLength < 100) {
     throw new Error(`Unexpected renderer state: ${JSON.stringify(result)}`);
   }
