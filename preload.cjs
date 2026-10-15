@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('stelchat', {
   openUrl: (url) => ipcRenderer.invoke('open-url', url),
   appVersionStatus: () => ipcRenderer.invoke('app-version-status'),
   setSetting: (key, value) => ipcRenderer.invoke('set-setting', key, value),
+  setSelectedMember: (uid) => ipcRenderer.invoke('set-selected-member', uid),
   setMemberNotification: (uid, channel, eventType, value) => ipcRenderer.invoke('set-member-notification', uid, channel, eventType, value),
   setAllMemberNotifications: (channel, eventType, value) => ipcRenderer.invoke('set-all-member-notifications', channel, eventType, value),
   setChatRoomMuted: (sessionId, targetUid, muted) => ipcRenderer.invoke('set-chat-room-muted', sessionId, targetUid, muted),

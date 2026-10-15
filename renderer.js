@@ -72,7 +72,7 @@ function recentSessionStatusHtml(status) {
   return `<i class="recent-session-status ${isLive ? 'live' : 'ended'}" title="${isLive ? '현재 방송 중' : '종료된 방송'}">${isLive ? 'LIVE' : '종료'}</i>`;
 }
 
-const { memberPreviewKey, recentKey } = window.stelchatRendererState;
+const { memberPreviewKey, recentKey, resolveSelectedMemberUid } = window.stelchatRendererState;
 const recentNotificationMuted = (item) => Boolean(state.settings.mutedChatRooms?.[recentKey(item)]);
 
 function notificationBellIcon(muted) {
@@ -231,9 +231,9 @@ function selectedMember() {
 
 function renderMemberSelector() {
   const select = $('#member-chat-select');
-  if (!state.selectedMemberUid || !state.streamers.some((member) => member.uid === state.selectedMemberUid)) {
-    state.selectedMemberUid = state.streamers[0]?.uid || '';
-  }
+  state.selectedMemberUid = resolveSelectedMemberUid(
+    state.selectedMemberUid, state.settings.selectedMemberUid, state.streamers,
+  );
   select.innerHTML = state.streamers.map((member) => `
     <option value="${escapeHtml(member.uid)}"${member.uid === state.selectedMemberUid ? ' selected' : ''}>${escapeHtml(member.name)}</option>
   `).join('');
@@ -698,8 +698,8 @@ async function load(useRefresh = false, silent = false) {
     reconcileRecentReadState(nextRecent);
     state.streamers = nextStreamers;
     state.recent = nextRecent;
-    if (!silent || streamersChanged) renderMemberSelector();
     applySettings(data.settings);
+    if (!silent || streamersChanged) renderMemberSelector();
     updateConnection(data.connection || { connected: false, state: 'connecting' });
     if (!silent || streamersChanged) renderLive();
     if (!silent || recentChanged) renderRecent();
@@ -747,6 +747,7 @@ $('#member-chat-select').addEventListener('change', (event) => {
   state.memberPreviews.clear();
   state.memberPreviewLoading.clear();
   state.memberPreviewRequests.clear();
+  void applySettingsUpdate(() => window.stelchat.setSelectedMember(state.selectedMemberUid));
   void loadMemberSessions(state.selectedMemberUid, true);
 });
 

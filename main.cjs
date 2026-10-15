@@ -32,6 +32,7 @@ const DEFAULT_SETTINGS = {
   mutedChatRooms: {},
   notificationVolume: 0.7,
   opacity: 1,
+  selectedMemberUid: '',
   windowBounds: null,
 };
 const BOOLEAN_SETTINGS = new Set(['alwaysOnTop', 'darkMode', 'desktopMode', 'launchAtLogin', 'notifications']);
@@ -137,6 +138,10 @@ function loadSettings() {
   settings.notificationVolume = Number.isFinite(notificationVolume)
     ? Math.min(1, Math.max(0, notificationVolume))
     : DEFAULT_SETTINGS.notificationVolume;
+  settings.selectedMemberUid = typeof settings.selectedMemberUid === 'string'
+    && /^[0-9a-f]{32}$/.test(settings.selectedMemberUid)
+    ? settings.selectedMemberUid
+    : DEFAULT_SETTINGS.selectedMemberUid;
   settings.mutedChatRooms = normalizedMutedChatRooms(settings.mutedChatRooms);
 }
 
@@ -591,6 +596,16 @@ function setMemberNotification(uid, channel, eventType, value) {
   return settings;
 }
 
+function setSelectedMember(uid) {
+  if (typeof uid !== 'string' || !streamerByUid.has(uid)) {
+    throw new Error('Invalid selected member');
+  }
+  if (settings.selectedMemberUid === uid) return settings;
+  commitSettings({ ...settings, selectedMemberUid: uid });
+  sendToRenderer('settings', settings);
+  return settings;
+}
+
 function setAllMemberNotifications(channel, eventType, value) {
   if (channel != null && !NOTIFICATION_CHANNELS.has(channel)) return settings;
   if (eventType != null && !NOTIFICATION_EVENTS.has(eventType)) return settings;
@@ -797,6 +812,7 @@ handleTrusted('open-url', (url) => {
 });
 handleTrusted('app-version-status', () => versionStatus(false));
 handleTrusted('set-setting', (key, value) => setSetting(key, value));
+handleTrusted('set-selected-member', (uid) => setSelectedMember(uid));
 handleTrusted('set-member-notification', (uid, channel, eventType, value) => setMemberNotification(uid, channel, eventType, value));
 handleTrusted('set-all-member-notifications', (channel, eventType, value) => setAllMemberNotifications(channel, eventType, value));
 handleTrusted('set-chat-room-muted', (sessionId, targetUid, muted) => setChatRoomMuted(sessionId, targetUid, muted));

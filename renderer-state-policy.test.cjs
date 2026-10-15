@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   applySessionEventToStreamer, memberPreviewKey, reconcileRecentReadState,
-  retainSessionWatermark, sessionEventUpdatesStreamer,
+  resolveSelectedMemberUid, retainSessionWatermark, sessionEventUpdatesStreamer,
 } = require('./renderer-state-policy.js');
 
 const chat = (id, sessionId, targetUid) => ({ id, session_id: sessionId, target_uid: targetUid });
@@ -86,6 +86,14 @@ test('known-room storage stays bounded and removes matching stale unread state',
 test('member preview cache keys isolate members sharing one broadcast session', () => {
   assert.notEqual(memberPreviewKey(42, 'member-a'), memberPreviewKey(42, 'member-b'));
   assert.equal(memberPreviewKey(42, 'member-a'), '42:member-a');
+});
+
+test('the persisted member selection is restored and stale values fall back safely', () => {
+  const members = [{ uid: 'member-a' }, { uid: 'member-b' }];
+  assert.equal(resolveSelectedMemberUid('', 'member-b', members), 'member-b');
+  assert.equal(resolveSelectedMemberUid('member-a', 'member-b', members), 'member-a');
+  assert.equal(resolveSelectedMemberUid('', 'removed-member', members), 'member-a');
+  assert.equal(resolveSelectedMemberUid('', 'member-b', []), '');
 });
 
 test('a superseded or older close cannot turn off the current live session', () => {

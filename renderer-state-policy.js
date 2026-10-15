@@ -8,6 +8,16 @@
   const recentKey = (item) => `${item.session_id}:${item.target_uid}`;
   const memberPreviewKey = (sessionId, targetUid) => `${sessionId}:${targetUid}`;
 
+  function resolveSelectedMemberUid(currentUid, persistedUid, streamers) {
+    const members = Array.isArray(streamers) ? streamers : [];
+    const available = new Set(members
+      .map((member) => member?.uid)
+      .filter((uid) => typeof uid === 'string' && uid));
+    if (available.has(currentUid)) return currentUid;
+    if (available.has(persistedUid)) return persistedUid;
+    return members.find((member) => available.has(member?.uid))?.uid || '';
+  }
+
   const numericSessionId = (value) => {
     const parsed = Number(value);
     return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
@@ -129,6 +139,7 @@
     memberPreviewKey,
     recentKey,
     reconcileRecentReadState,
+    resolveSelectedMemberUid,
     retainSessionWatermark,
     sessionEventUpdatesStreamer,
   };
