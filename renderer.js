@@ -204,7 +204,7 @@ function recentPreviewHtml(item) {
     .slice(-8);
   const messageHtml = messages.length ? messages.map((message) => `
     <div class="preview-message">
-      <span>${message.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}${escapeHtml(message.content)}</span>
+      <span>${message.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}${window.stelchatEmoji.html(message.content, message.emoji_refs)}</span>
       <time>${formatTime(message.sent_at)}</time>
     </div>`).join('') : '<div class="recent-preview-state">표시할 채팅이 없습니다.</div>';
   return `${messageHtml}
@@ -216,7 +216,7 @@ function renderRecent() {
     <article class="recent-group${state.expandedRecentKey === recentKey(item) ? ' expanded' : ''}${state.unreadRecentKeys.has(recentKey(item)) ? ' unread' : ''}" data-key="${recentKey(item)}">
       <div class="recent-summary" data-key="${recentKey(item)}" role="button" tabindex="0" aria-expanded="${state.expandedRecentKey === recentKey(item)}">
         ${avatar(item, 'target_')}
-        <span class="card-copy"><span class="card-title"><strong>${escapeHtml(item.target_name)}</strong>${state.unreadRecentKeys.has(recentKey(item)) ? '<i class="recent-unread-dot" title="읽지 않은 새 채팅" aria-label="읽지 않은 새 채팅"></i>' : ''}${item.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}</span><small class="recent-channel-row"><span>${escapeHtml(item.channel_name)}${markHtml(item)}의 방송에서</span><button class="recent-channel-link" data-url="${escapeHtml(liveUrl(item.channel_id))}" type="button" title="CHZZK 라이브 채널 열기" aria-label="${escapeHtml(item.channel_name)} CHZZK 라이브 채널 열기">↗</button>${recentSessionStatusHtml(item.status)}</small>${state.expandedRecentKey === recentKey(item) ? '' : `<b>“${escapeHtml(item.content)}”</b>`}</span>
+        <span class="card-copy"><span class="card-title"><strong>${escapeHtml(item.target_name)}</strong>${state.unreadRecentKeys.has(recentKey(item)) ? '<i class="recent-unread-dot" title="읽지 않은 새 채팅" aria-label="읽지 않은 새 채팅"></i>' : ''}${item.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}</span><small class="recent-channel-row"><span>${escapeHtml(item.channel_name)}${markHtml(item)}의 방송에서</span><button class="recent-channel-link" data-url="${escapeHtml(liveUrl(item.channel_id))}" type="button" title="CHZZK 라이브 채널 열기" aria-label="${escapeHtml(item.channel_name)} CHZZK 라이브 채널 열기">↗</button>${recentSessionStatusHtml(item.status)}</small>${state.expandedRecentKey === recentKey(item) ? '' : `<b>“${window.stelchatEmoji.html(item.content, item.emoji_refs)}”</b>`}</span>
         <span class="recent-meta"><button class="recent-notification-button${recentNotificationMuted(item) ? ' muted' : ''}" data-session-id="${escapeHtml(item.session_id)}" data-target-uid="${escapeHtml(item.target_uid)}" data-state="${recentNotificationMuted(item) ? 'muted' : 'active'}" type="button" title="${recentNotificationMuted(item) ? '알림 켜기' : '알림 끄기'}" aria-label="${escapeHtml(item.target_name)} ${recentNotificationMuted(item) ? '채팅방 알림 켜기' : '채팅방 알림 끄기'}">${notificationBellIcon(recentNotificationMuted(item))}</button><time>${formatDate(item.sent_at)}<br />${formatTime(item.sent_at)}</time><i>⌄</i></span>
       </div>
       ${state.expandedRecentKey === recentKey(item) ? `<div class="recent-preview">${recentPreviewHtml(item)}</div>` : ''}
@@ -254,7 +254,7 @@ function memberSessionPreviewHtml(session) {
     .slice(-20);
   const messageHtml = messages.length ? messages.map((message) => `
     <div class="preview-message">
-      <span>${message.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}${escapeHtml(message.content)}</span>
+      <span>${message.source === 'donation' ? '<i class="donation-pill">후원</i>' : ''}${window.stelchatEmoji.html(message.content, message.emoji_refs)}</span>
       <time>${formatTime(message.sent_at)}</time>
     </div>`).join('') : '<div class="recent-preview-state">표시할 채팅이 없습니다.</div>';
   const member = selectedMember();
@@ -285,7 +285,7 @@ function renderMemberSessions() {
     return `<article class="recent-group member-session-group${expanded ? ' expanded' : ''}" data-session-id="${session.id}">
       <div class="recent-summary member-session-summary" data-session-id="${session.id}" role="button" tabindex="0" aria-expanded="${expanded}">
         ${avatar(channelAvatar)}
-        <span class="card-copy"><span class="card-title"><strong>${escapeHtml(session.channel_name)}</strong>${session.status === 'OPEN' ? '<i class="live-pill">LIVE</i>' : ''}</span><small class="recent-channel-row"><span>${escapeHtml(session.title || '방송 제목 없음')}</span><button class="recent-channel-link member-channel-link" data-url="${escapeHtml(liveUrl(session.channel_id))}" type="button" title="CHZZK 라이브 채널 열기" aria-label="${escapeHtml(session.channel_name)} CHZZK 라이브 채널 열기">↗</button></small>${expanded ? '' : `<b>“${escapeHtml(session.latest)}”</b>`}</span>
+        <span class="card-copy"><span class="card-title"><strong>${escapeHtml(session.channel_name)}</strong>${session.status === 'OPEN' ? '<i class="live-pill">LIVE</i>' : ''}</span><small class="recent-channel-row"><span>${escapeHtml(session.title || '방송 제목 없음')}</span><button class="recent-channel-link member-channel-link" data-url="${escapeHtml(liveUrl(session.channel_id))}" type="button" title="CHZZK 라이브 채널 열기" aria-label="${escapeHtml(session.channel_name)} CHZZK 라이브 채널 열기">↗</button></small>${expanded ? '' : `<b>“${window.stelchatEmoji.html(session.latest, session.latest_emoji_refs)}”</b>`}</span>
         <span class="member-session-meta"><small>${Number(session.message_count || 0).toLocaleString()}개</small><time>${formatDate(session.last_chat_at)}<br />${formatTime(session.last_chat_at)}</time><i>⌄</i></span>
       </div>
       ${expanded ? `<div class="recent-preview">${memberSessionPreviewHtml(session)}</div>` : ''}
@@ -913,6 +913,7 @@ window.stelchat.onEvent(({ eventName, payload }) => {
         const currentLatest = { sent_at: existing.last_chat_at, id: existing.latest_message_id };
         if (window.stelchatRealtimeMerge.compareMessageOrder(payload, currentLatest) >= 0) {
           existing.latest = payload.content;
+          existing.latest_emoji_refs = payload.emoji_refs;
           existing.latest_source = payload.source;
           existing.last_chat_at = payload.sent_at;
           existing.latest_message_id = payload.id;
@@ -937,6 +938,7 @@ window.stelchat.onEvent(({ eventName, payload }) => {
           latest_id: payload.id,
           latest_message_id: payload.id,
           latest: payload.content,
+          latest_emoji_refs: payload.emoji_refs,
           latest_source: payload.source,
         }, ...state.memberSessions].slice(0, 50);
       }

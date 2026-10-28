@@ -9,6 +9,8 @@ function subscribe(channel, callback) {
 contextBridge.exposeInMainWorld('stelchat', {
   snapshot: () => ipcRenderer.invoke('snapshot'),
   refresh: () => ipcRenderer.invoke('refresh'),
+  emojiSeed: () => ipcRenderer.invoke('emoji-seed'),
+  emojiReady: (files) => ipcRenderer.invoke('emoji-ready', files),
   memberSessions: (uid) => ipcRenderer.invoke('member-sessions', uid),
   sessionPreview: (sessionId, targetUid) => ipcRenderer.invoke('session-preview', sessionId, targetUid),
   openUrl: (url) => ipcRenderer.invoke('open-url', url),

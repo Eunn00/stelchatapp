@@ -794,6 +794,15 @@ function handleTrusted(channel, handler) {
 
 handleTrusted('snapshot', snapshotCoordinator.snapshot);
 handleTrusted('refresh', snapshotCoordinator.refresh);
+let emojiSeedPromise;
+handleTrusted('emoji-seed', () => {
+  if (!emojiSeedPromise) emojiSeedPromise = fetchJson('/api/emoji-seed').catch(error => { emojiSeedPromise = null; throw error; });
+  return emojiSeedPromise;
+});
+handleTrusted('emoji-ready', (files) => {
+  if (!Array.isArray(files) || files.length > 64 || files.some(file => typeof file !== 'string' || !/^[a-f0-9]{64}\.(png|gif|webp|jpg|jpeg)$/.test(file))) throw new Error('Invalid emoji files');
+  return fetchJson('/api/emoji-ready?files=' + encodeURIComponent([...new Set(files)].join(',')));
+});
 handleTrusted('member-sessions', (uid) => {
   if (typeof uid !== 'string' || !streamerByUid.has(uid)) {
     throw new Error('Invalid member sessions request');

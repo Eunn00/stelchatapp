@@ -259,3 +259,4 @@ footer button { padding: 0; border: 0; background: none; color: #7386d9; cursor:
 :root[data-theme="dark"] footer { border-top-color: rgba(255,255,255,.07); background: rgba(27,28,34,.76); color: #85828b; }
 :root[data-theme="dark"] footer button { color: #91a3eb; }
 :root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #45464f; background-clip: padding-box; }
+:root .chat-emoji { display: inline-block; width: 24px; height: 24px; object-fit: contain; vertical-align: middle; margin: 0 2px; }
