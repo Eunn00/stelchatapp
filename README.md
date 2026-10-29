@@ -67,3 +67,21 @@ Windows 알림을 켜면 선택한 멤버의 방송 시작 또는 새 채팅 내
 앱 또는 공개 기록에 관한 열람·정정·삭제 문의는 [StelChat 웹사이트](https://stelchat.xyz) 최하단의 **Contact**를 이용해 주세요. 처리 정보나 앱 동작 방식이 바뀌면 이 README에서 변경 내용을 공개합니다.
 
 이 앱 개인정보 처리방침은 2026년 10월 7일부터 적용합니다.
+# Local emoji disk cache
+
+Images used by visible chat are cached under Electron `userData/emoji-cache-v1`.
+The limit is 100 MiB (image bytes); crossing it evicts oldest-used files toward
+80 MiB. Download concurrency is 3, with a 2 MiB per-file cap matching the server.
+Only validated StelChat asset filenames can be requested via `stelchat-emoji:`.
+Separate SHA-256 sidecars detect local corruption: server filenames hash the
+source URL, not the actual bytes. Checksums are integrity checks, not signatures.
+Small bounded image buffers stay in the main process, never Base64 renderer IPC.
+Failures back off for 30 seconds; full/unwritable storage displays downloaded
+bytes without caching. The settings panel shows usage and a cache-only clear
+button. Existing settings, chat state and notification preferences are untouched.
+Clear does not unload images already on screen; pending requests cannot persist
+their old results after clear. Later image requests can repopulate the cache.
+Metadata/history still needs the normal APIs; this is not full offline chat mode.
+
+Tests: `npm run test:cache` and `npm run smoke:cache` (isolated temporary profile;
+the latter fetches one real public emoji). No production events are injected.

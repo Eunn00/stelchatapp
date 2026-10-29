@@ -2,8 +2,8 @@
 (() => {
   const valid = value => typeof value === 'string' && /^[a-f0-9]{64}\.(png|gif|webp|jpg|jpeg)$/.test(value);
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let seed = {}, seedLoaded = false, checking = false;
-  const roots = new Map(), ready = new Map(), failed = new Set();
+  let seed = {}, seedLoaded = false, checking = false, seedRetryAt = 0;
+  const roots = new Map(), ready = new Map(), failed = new Set(), retryAt = new Map();
   function parts(text, refs) {
     try { if (typeof refs === 'string') refs = JSON.parse(refs); } catch { refs = {}; }
     const result = []; let end = 0, count = 0;
@@ -27,8 +27,8 @@
         const img = document.createElement('img');
         img.className = 'chat-emoji'; img.width = img.height = 24;
         img.alt = img.title = p.text; img.decoding = 'async';
-        img.addEventListener('error', () => { ready.delete(p.file); failed.add(p.file); repaint(); }, {once:true});
-        img.src = 'https://stelchat.xyz' + url; node.append(img);
+        img.addEventListener('error', () => { ready.delete(p.file); failed.add(p.file); retryAt.set(p.file,Date.now()+30000); repaint(); }, {once:true});
+        img.src = url.startsWith('/emoji-assets/') ? 'https://stelchat.xyz'+url : url; node.append(img);
       } else node.append(document.createTextNode(p.file && !failed.has(p.file) ? '◌' : p.text));
     }
   }
@@ -45,18 +45,26 @@
     if (checking || document.hidden) return;
     checking = true;
     try {
-      if (!seedLoaded) {
-        seed = await window.stelchat.emojiSeed(); seedLoaded = true;
-        for (const item of roots.values()) { item.parts=parts(item.text,item.refs); item.signature=null; }
+      for(const [file,at] of retryAt)if(at<=Date.now()){failed.delete(file);retryAt.delete(file);}
+      if (!seedLoaded && Date.now()>=seedRetryAt) {
+        try{
+          seed = await window.stelchat.emojiSeed(); seedLoaded = true;
+          for (const item of roots.values()) { item.parts=parts(item.text,item.refs); item.signature=null; }
+        }catch{seedRetryAt=Date.now()+30000;}
       }
       repaint();
-      const missing = [...new Set([...roots.values()].filter(i=>i.visible).flatMap(i=>i.parts.map(p=>p.file)).filter(f=>f&&!ready.has(f)&&!failed.has(f)))].slice(0,64);
+      let missing = [...new Set([...roots.values()].filter(i=>i.visible).flatMap(i=>i.parts.map(p=>p.file)).filter(f=>f&&!ready.has(f)&&!failed.has(f)))].slice(0,64);
+      if(missing.length && window.stelchat.emojiCacheHas){
+        const cached=await window.stelchat.emojiCacheHas(missing);
+        for(const file of cached)if(valid(file))ready.set(file,window.stelchat.emojiCacheUrl(file));
+        missing=missing.filter(f=>!ready.has(f));repaint();
+      }
       if (missing.length) {
         const response = await window.stelchat.emojiReady(missing);
         if (ready.size + failed.size > 4096) { ready.clear(); failed.clear(); }
         for (const [file,url] of Object.entries(response.ready || {}))
-          if (valid(file) && /^\/emoji-assets\/[a-f0-9]{64}\.(png|gif|webp|jpg|jpeg)$/.test(url)) ready.set(file,url);
-        for (const file of response.failed || []) if (valid(file)) failed.add(file);
+          if (valid(file) && /^\/emoji-assets\/[a-f0-9]{64}\.(png|gif|webp|jpg|jpeg)$/.test(url)) ready.set(file,window.stelchat.emojiCacheUrl ? window.stelchat.emojiCacheUrl(url.split('/').pop()) : url);
+        for (const file of response.failed || []) if (valid(file)) {failed.add(file);retryAt.set(file,Date.now()+30000);}
         repaint();
       }
     } catch { /* Retry without interrupting chat, sound or Windows notifications. */ }

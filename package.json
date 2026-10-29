@@ -1,6 +1,6 @@
 {
   "name": "stelchat-desktop",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "StelChat Windows companion",
   "main": "main.cjs",
   "author": "StelChat",
@@ -10,6 +10,8 @@
     "start": "electron .",
     "check": "node --check main.cjs && node --check preload.cjs && node --check renderer.js && node --check emoji-renderer.js && node --check realtime-merge-policy.js && node --check renderer-state-policy.js && node --test notification-policy.test.cjs event-delivery-policy.test.cjs external-link-policy.test.cjs update-policy.test.cjs realtime-merge-policy.test.cjs renderer-state-policy.test.cjs snapshot-coordinator.test.cjs window-bounds-policy.test.cjs",
     "smoke": "node smoke.cjs",
+    "test:cache": "node --test emoji-cache.test.cjs",
+    "smoke:cache": "electron cache-smoke.cjs",
     "icon": "node make-icon.cjs",
     "dist": "electron-builder --win portable",
     "dist:installer": "electron-builder --win nsis"
@@ -38,6 +40,7 @@
       "preload.cjs",
       "renderer.js",
       "emoji-renderer.js",
+      "emoji-cache.cjs",
       "index.html",
       "styles.css",
       "THIRD_PARTY_NOTICES.md",

@@ -1,8 +1,11 @@
 const {
-  app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, Tray,
+  app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, Tray, protocol,
 } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
+const { EmojiCache, VALID: EMOJI_FILE, imageType } = require('./emoji-cache.cjs');
+protocol.registerSchemesAsPrivileged([{scheme:'stelchat-emoji',privileges:{standard:true,secure:true}}]);
+let emojiCache;
 const { fileURLToPath, pathToFileURL } = require('node:url');
 const {
   chatRoomIsMuted, chatRoomKey, liveSessionKey, notificationEventType,
@@ -753,6 +756,15 @@ if (!gotLock) app.quit();
 else {
   app.on('second-instance', showWindow);
   app.whenReady().then(() => {
+    emojiCache = new EmojiCache(path.join(app.getPath('userData'),'emoji-cache-v1'));
+    protocol.handle('stelchat-emoji', async request => {
+      try {
+        const url=new URL(request.url), name=url.pathname.slice(1);
+        if(request.method!=='GET'||url.host!=='cache'||url.search||url.hash||!EMOJI_FILE.test(name))return new Response(null,{status:400});
+        const bytes=await emojiCache.get(name);
+        return new Response(bytes,{headers:{'Content-Type':imageType(bytes),'Cache-Control':'no-store'}});
+      }catch{return new Response(null,{status:503});}
+    });
     loadSettings();
     try { applyLoginItemSetting(settings.launchAtLogin); } catch (error) {
       console.warn('Could not reconcile launch-at-login:', error.message);
@@ -794,6 +806,12 @@ function handleTrusted(channel, handler) {
 
 handleTrusted('snapshot', snapshotCoordinator.snapshot);
 handleTrusted('refresh', snapshotCoordinator.refresh);
+handleTrusted('emoji-cache-stats', () => emojiCache.stats());
+handleTrusted('emoji-cache-clear', () => emojiCache.clear());
+handleTrusted('emoji-cache-has', async files => {
+  if(!Array.isArray(files)||files.length>64||files.some(f=>!EMOJI_FILE.test(f)))throw Error('Invalid files');
+  const available=new Set((await emojiCache.entries()).map(e=>e.name));return files.filter(f=>available.has(f));
+});
 let emojiSeedPromise;
 handleTrusted('emoji-seed', () => {
   if (!emojiSeedPromise) emojiSeedPromise = fetchJson('/api/emoji-seed').catch(error => { emojiSeedPromise = null; throw error; });

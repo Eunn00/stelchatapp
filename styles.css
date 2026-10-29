@@ -127,6 +127,9 @@ main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .settings-link-status small { font-size: 9px; font-weight: 700; }
 .settings-link-status b { font-size: 20px; font-weight: 400; }
 .app-version-row { margin-top: auto; padding: 13px; border-top: 1px solid rgba(70,60,75,.08); }
+.emoji-cache-row { margin-top: 8px; flex-shrink: 0; }
+#settings-panel { overflow-y: auto; }
+#emoji-cache-clear { margin-top: 8px; padding: 6px 10px; border: 1px solid #788ce255; border-radius: 7px; background: transparent; color: inherit; cursor: pointer; }
 .app-version-main { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .app-version-row strong { display: block; font-size: 11px; }
 .app-version-row small { margin-top: 3px; display: block; color: #969198; font-size: 9px; }
