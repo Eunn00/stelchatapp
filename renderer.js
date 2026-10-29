@@ -786,7 +786,7 @@ $('#app-update-link').addEventListener('click', () => {
 });
 const cacheRow=document.createElement('div');
 cacheRow.className='app-version-row emoji-cache-row';
-cacheRow.innerHTML='<strong>이모티콘 캐시</strong><small id="emoji-cache-usage" role="status">확인 중</small><button id="emoji-cache-clear" type="button">캐시 삭제</button>';
+cacheRow.innerHTML='<div><strong>이모티콘 캐시</strong><small id="emoji-cache-usage" role="status">확인 중</small></div><button id="emoji-cache-clear" type="button">캐시 삭제</button>';
 $('#settings-panel').append(cacheRow);
 async function updateEmojiCacheStats(){
   try{const s=await window.stelchat.emojiCacheStats();$('#emoji-cache-usage').textContent=`${(s.bytes/1048576).toFixed(1)} / ${Math.round(s.limit/1048576)} MiB · ${s.count}개`;}catch{$('#emoji-cache-usage').textContent='캐시 정보를 확인할 수 없습니다.';}

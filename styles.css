@@ -127,9 +127,14 @@ main { position: relative; height: calc(100vh - 92px); overflow: hidden; }
 .settings-link-status small { font-size: 9px; font-weight: 700; }
 .settings-link-status b { font-size: 20px; font-weight: 400; }
 .app-version-row { margin-top: auto; padding: 13px; border-top: 1px solid rgba(70,60,75,.08); }
-.emoji-cache-row { margin-top: 8px; flex-shrink: 0; }
+.emoji-cache-row { margin-top: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 #settings-panel { overflow-y: auto; }
-#emoji-cache-clear { margin-top: 8px; padding: 6px 10px; border: 1px solid #788ce255; border-radius: 7px; background: transparent; color: inherit; cursor: pointer; }
+#emoji-cache-clear { flex: 0 0 auto; min-height: 32px; padding: 7px 10px; border: 0; border-radius: 7px; background: rgba(120,140,226,.1); color: #6477cb; cursor: pointer; font-size: 10px; font-weight: 750; transition: background .15s ease; }
+#emoji-cache-clear:hover { background: rgba(120,140,226,.2); }
+#emoji-cache-clear:focus-visible { outline: 2px solid #788ce2; outline-offset: 2px; }
+#emoji-cache-clear:disabled { opacity: .45; cursor: wait; }
+:root[data-theme="dark"] #emoji-cache-clear { background: rgba(120,140,226,.16); color: #b0bff4; }
+:root[data-theme="dark"] #emoji-cache-clear:hover { background: rgba(120,140,226,.26); }
 .app-version-main { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .app-version-row strong { display: block; font-size: 11px; }
 .app-version-row small { margin-top: 3px; display: block; color: #969198; font-size: 9px; }
