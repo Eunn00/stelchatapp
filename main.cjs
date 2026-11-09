@@ -13,6 +13,26 @@ const {
 const { createExternalOpenGuard } = require('./external-link-policy.cjs');
 const { isNewerVersion, normalizedVersion } = require('./update-policy.cjs');
 const { normalizedWindowBounds } = require('./window-bounds-policy.cjs');
+const {chatReadRooms,isChatRead,mergeReadRooms}=require('./chat-notification-read.cjs');
+const chatReadThrough=new Map();
+const{PortraitCache}=require('./notification-portraits.cjs');
+const{PortraitFiles}=require('./portrait-files.cjs');
+const{windowsToast}=require('./windows-toast.cjs');
+let portraitFiles;
+const notificationPortraits=new PortraitCache({decode:async bytes=>{
+  let image=nativeImage.createFromBuffer(bytes);
+  if(image.isEmpty()&&mainWindow&&!mainWindow.isDestroyed()){
+    const data=JSON.stringify('data:image/webp;base64,'+bytes.toString('base64'));
+    const png=await mainWindow.webContents.executeJavaScript(`new Promise(resolve=>{
+      const image=new Image(),timer=setTimeout(()=>{image.src='';resolve(null)},1500);
+      image.onerror=()=>{clearTimeout(timer);resolve(null)};
+      image.onload=()=>{clearTimeout(timer);if(image.naturalWidth<1||image.naturalHeight<1||image.naturalWidth>512||image.naturalHeight>512){resolve(null);return}
+        const canvas=document.createElement('canvas');canvas.width=160;canvas.height=160;
+        canvas.getContext('2d').drawImage(image,0,0,160,160);resolve(canvas.toDataURL('image/png'))};image.src=${data}})`);
+    if(png)image=nativeImage.createFromDataURL(png);
+  }
+  const size=image.getSize();return !image.isEmpty()&&size.width<=512&&size.height<=512?image.resize({width:160,height:160}):null;
+}});
 const { createEventDeduper, reconnectDelay } = require('./event-delivery-policy.cjs');
 const { createSnapshotCoordinator } = require('./snapshot-coordinator.cjs');
 const { applySessionEventToStreamer, retainSessionWatermark } = require('./renderer-state-policy.js');
@@ -105,7 +125,7 @@ function settingsPath() {
 
 function ensureWindowsPortableShortcut() {
   const executablePath = process.env.PORTABLE_EXECUTABLE_FILE;
-  if (process.platform !== 'win32' || !app.isPackaged || !executablePath) return;
+  if (process.platform !== 'win32' || !app.isPackaged || !executablePath || process.env.STELCHAT_TEST_INSTANCE==='1') return;
   const shortcutPath = path.join(
     app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'StelChat.lnk',
   );
@@ -327,7 +347,7 @@ function updateConnection(status) {
   sendToRenderer('connection', status);
 }
 
-function dispatchNotification(eventName, payload, sessionTransition = null) {
+async function dispatchNotification(eventName, payload, sessionTransition = null) {
   if (eventName === 'session' && !sessionTransition?.accepted) return;
   if (eventName === 'session' && payload.status === 'OPEN' && !sessionTransition.notify) return;
   if (eventName === 'session' && payload.status === 'CLOSE') {
@@ -342,20 +362,31 @@ function dispatchNotification(eventName, payload, sessionTransition = null) {
   if (notificationEvent === 'live' && !liveMember) return;
   const targetUid = eventName === 'chat' ? payload.target_uid : liveMember.uid;
   if (notificationEvent === 'chat' && chatRoomIsMuted(payload, settings.mutedChatRooms)) return;
+  if (notificationEvent === 'chat' && isChatRead({uid:targetUid,session_id:payload.session_id,id:payload.id},chatReadThrough)) return;
   const preference = normalizedNotificationPreference(settings.notificationPreferences?.[targetUid]);
   const targetName = eventName === 'chat' ? (payload.target_name || '멤버') : liveMember.name;
   const targetInitials = eventName === 'chat' ? payload.target_initials : liveMember.initials;
+  if (preference.sound[notificationEvent])sendToRenderer('notification-sound', { type: notificationEvent });
   if (preference.desktop[notificationEvent] && Notification.isSupported()) {
     try {
+      let portraitPath=null;
+      try{const portrait=await notificationPortraits.get(targetUid,{kind:notificationEvent});portraitPath=await portraitFiles?.get(targetUid,portrait)}catch{}
+      if(quitting||!normalizedNotificationPreference(settings.notificationPreferences?.[targetUid]).desktop[notificationEvent]
+          ||(notificationEvent==='chat'&&(chatRoomIsMuted(payload,settings.mutedChatRooms)
+             ||isChatRead({uid:targetUid,session_id:payload.session_id,id:payload.id},chatReadThrough))))return;
+      const title=liveMember ? `${targetName} 방송 시작` : `${targetName}의 새 채팅`;
+      const body=liveMember ? (payload.title || '방송을 시작했어요.') : `${payload.channel_name || '채팅방'} · ${payload.content || ''}`;
       const notification = new Notification({
-        title: liveMember ? `${targetName} 방송 시작` : `${targetName}의 새 채팅`,
-        body: liveMember ? (payload.title || '방송을 시작했어요.') : `${payload.channel_name || '채팅방'} · ${payload.content || ''}`,
+        title,body,...(portraitPath?{icon:portraitPath}:{}),
+        ...(process.platform==='win32'?{toastXml:windowsToast(title,body,portraitPath)}:{}),
         silent: true,
       });
       const forgetNotification = () => {
         const index = activeNotifications.indexOf(notification);
         if (index >= 0) activeNotifications.splice(index, 1);
       };
+      notification.stelchatEventKey=notificationEvent==='chat'?`chat:${targetUid}:${payload.id}`:'';
+      notification.stelchatChat=notificationEvent==='chat'?{uid:targetUid,session_id:payload.session_id,id:payload.id}:null;
       notification.once('click', () => {
         openExternalOnce(memberUrl(targetInitials));
         forgetNotification();
@@ -367,9 +398,6 @@ function dispatchNotification(eventName, payload, sessionTransition = null) {
     } catch (error) {
       console.warn('Could not display Windows notification:', error.message);
     }
-  }
-  if (preference.sound[notificationEvent]) {
-    sendToRenderer('notification-sound', { type: notificationEvent });
   }
 }
 
@@ -527,6 +555,7 @@ function updateTrayMenu() {
 }
 
 function applyLoginItemSetting(enabled) {
+  if(!app.isPackaged||process.env.STELCHAT_TEST_INSTANCE==='1')return;
   app.setLoginItemSettings({
     openAtLogin: Boolean(enabled),
     path: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
@@ -757,6 +786,7 @@ else {
   app.on('second-instance', showWindow);
   app.whenReady().then(() => {
     emojiCache = new EmojiCache(path.join(app.getPath('userData'),'emoji-cache-v1'));
+    portraitFiles=new PortraitFiles(path.join(app.getPath('userData'),'notification-portraits'));
     protocol.handle('stelchat-emoji', async request => {
       try {
         const url=new URL(request.url), name=url.pathname.slice(1);
@@ -844,3 +874,23 @@ handleTrusted('set-member-notification', (uid, channel, eventType, value) => set
 handleTrusted('set-all-member-notifications', (channel, eventType, value) => setAllMemberNotifications(channel, eventType, value));
 handleTrusted('set-chat-room-muted', (sessionId, targetUid, muted) => setChatRoomMuted(sessionId, targetUid, muted));
 handleTrusted('hide-window', () => mainWindow?.hide());
+handleTrusted('acknowledge-notifications',keys=>{
+  if(!Array.isArray(keys)||keys.length>500)throw Error('Invalid read keys');
+  const read=new Set(keys.filter(key=>typeof key==='string'&&key.length<=180));
+  for(const notification of [...activeNotifications])if(read.has(notification.stelchatEventKey)){
+    notification.close();const index=activeNotifications.indexOf(notification);if(index>=0)activeNotifications.splice(index,1);
+  }
+});
+handleTrusted('acknowledge-chat-rooms',(messages,uid='',sessionId=null,scope='room')=>{
+  if(!Array.isArray(messages)||messages.length>2000||!['room','all','member'].includes(scope)
+      ||(scope==='member'&&!/^[a-f0-9]{32}$/.test(uid)))throw Error('Invalid room read request');
+  mergeReadRooms(chatReadThrough,chatReadRooms(messages,uid,sessionId));
+  for(const notification of [...activeNotifications]){
+    const chat=notification.stelchatChat;if(!chat)continue;
+    const bulk=scope==='all'||(scope==='member'&&chat.uid===uid);
+    if(bulk)mergeReadRooms(chatReadThrough,chatReadRooms([{id:chat.id,target_uid:chat.uid,session_id:chat.session_id}]));
+    if(bulk||isChatRead(chat,chatReadThrough)){
+      notification.close();const index=activeNotifications.indexOf(notification);if(index>=0)activeNotifications.splice(index,1);
+    }
+  }
+});

@@ -9,6 +9,8 @@ function subscribe(channel, callback) {
 contextBridge.exposeInMainWorld('stelchat', {
   snapshot: () => ipcRenderer.invoke('snapshot'),
   refresh: () => ipcRenderer.invoke('refresh'),
+  acknowledgeNotifications:keys=>ipcRenderer.invoke('acknowledge-notifications',keys),
+  acknowledgeChatRooms:(messages,uid='',sessionId=null,scope='room')=>ipcRenderer.invoke('acknowledge-chat-rooms',messages,uid,sessionId,scope),
   emojiSeed: () => ipcRenderer.invoke('emoji-seed'),
   emojiReady: (files) => ipcRenderer.invoke('emoji-ready', files),
   emojiCacheUrl: (file) => /^[a-f0-9]{64}\.(png|gif|webp|jpg|jpeg)$/.test(file) ? 'stelchat-emoji://cache/'+file : '',

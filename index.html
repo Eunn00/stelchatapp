@@ -23,8 +23,10 @@
     <main>
       <nav class="tabs" aria-label="콘텐츠 선택">
         <button class="active" data-tab="live" type="button">LIVE <span id="live-count" hidden>0</span></button>
-        <button data-tab="member" type="button">멤버별 채팅</button>
-        <button data-tab="recent" type="button">최근 채팅 <span class="unread-count" id="recent-unread-count" aria-label="읽지 않은 채팅 있음" hidden></span></button>
+        <div class="chat-nav-group" id="chat-nav-group">
+          <button id="chat-menu-toggle" type="button" aria-expanded="false" aria-controls="chat-submenu">채팅 <span class="unread-count" id="chat-menu-unread" aria-label="읽지 않은 채팅 있음" hidden></span></button>
+          <div class="chat-submenu" id="chat-submenu"><button data-tab="member" type="button">멤버별</button><button data-tab="recent" type="button">최신순</button></div>
+        </div>
         <button class="refresh-button" id="refresh-button" type="button" title="새로고침" aria-label="새로고침">↻</button>
       </nav>
 
@@ -35,7 +37,7 @@
 
       <section class="panel" id="member-panel">
         <div class="member-chat-toolbar">
-          <label for="member-chat-select">멤버 선택</label>
+          <div class="member-chat-toolbar-heading"><label for="member-chat-select">멤버 선택</label><div class="member-chat-read-actions"><button id="member-mark-everyone-read" type="button" title="모든 멤버의 안 읽은 채팅 모두 확인" disabled>전체 확인</button><button id="member-mark-all-read" type="button" disabled>멤버 확인</button></div></div>
           <select id="member-chat-select" aria-label="채팅 기록을 볼 멤버 선택"></select>
         </div>
         <div class="section-copy member-section-copy"><strong id="member-chat-heading">멤버별 채팅</strong><small>선택한 멤버의 최근 채팅방 50개예요.</small></div>
@@ -81,5 +83,7 @@
     <script src="renderer-state-policy.js"></script>
     <script src="emoji-renderer.js"></script>
     <script src="renderer.js"></script>
+    <script src="chat-menu.js"></script>
+    <script src="member-picker.js"></script>
   </body>
 </html>

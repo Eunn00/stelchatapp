@@ -7,6 +7,23 @@
 
   const recentKey = (item) => `${item.session_id}:${item.target_uid}`;
   const memberPreviewKey = (sessionId, targetUid) => `${sessionId}:${targetUid}`;
+  function markMemberChatRoomsRead(unreadKeys, uid) {
+    return new Set([...unreadKeys].filter(key => !uid || !key.endsWith(`:${uid}`)));
+  }
+  function newerMessageId(id, previous) {
+    if (previous == null) return true;
+    if (/^\d+$/.test(String(id)) && /^\d+$/.test(String(previous))) return BigInt(id) > BigInt(previous);
+    return String(id) !== String(previous);
+  }
+  function markChatRoomRead(key, messageId, knownIds, unreadKeys) {
+    const known = new Map(knownIds), unread = new Set(unreadKeys);
+    if (!messageId) return { knownIds: known, unreadKeys: unread };
+    const previous = known.get(key);
+    if (previous != null && newerMessageId(previous, messageId)) return { knownIds: known, unreadKeys: unread };
+    known.delete(key);known.set(key, String(messageId));unread.delete(key);
+    trimKnownRooms(known, unread, DEFAULT_MAX_KNOWN_ROOMS);
+    return { knownIds: known, unreadKeys: unread };
+  }
 
   function resolveSelectedMemberUid(currentUid, persistedUid, streamers) {
     const members = Array.isArray(streamers) ? streamers : [];
@@ -117,12 +134,13 @@
       const messageId = String(item?.id ?? '');
       if (!messageId) continue;
       const knownId = nextKnownIds.get(key);
-      if ((baselineReady || markBeforeBaseline) && knownId !== messageId && !isBeingRead(key)) {
+      if (isBeingRead(key)) nextUnreadKeys.delete(key);
+      else if ((baselineReady || markBeforeBaseline) && newerMessageId(messageId, knownId)) {
         nextUnreadKeys.add(key);
       }
       // Refresh insertion order so active rooms survive the bounded history.
       nextKnownIds.delete(key);
-      nextKnownIds.set(key, messageId);
+      nextKnownIds.set(key, newerMessageId(messageId, knownId) ? messageId : knownId);
     }
 
     trimKnownRooms(nextKnownIds, nextUnreadKeys, maxKnownRooms);
@@ -138,6 +156,9 @@
     applySessionEventToStreamer,
     memberPreviewKey,
     recentKey,
+    markChatRoomRead,
+    markMemberChatRoomsRead,
+    newerMessageId,
     reconcileRecentReadState,
     resolveSelectedMemberUid,
     retainSessionWatermark,
