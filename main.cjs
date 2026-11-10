@@ -17,18 +17,20 @@ const {chatReadRooms,isChatRead,mergeReadRooms}=require('./chat-notification-rea
 const chatReadThrough=new Map();
 const{PortraitCache}=require('./notification-portraits.cjs');
 const{PortraitFiles}=require('./portrait-files.cjs');
+const{preparePortrait,boundedDecoder}=require('./portrait-deadline.cjs');
+const decodeInPage=boundedDecoder();
 const{windowsToast}=require('./windows-toast.cjs');
 let portraitFiles;
 const notificationPortraits=new PortraitCache({decode:async bytes=>{
   let image=nativeImage.createFromBuffer(bytes);
-  if(image.isEmpty()&&mainWindow&&!mainWindow.isDestroyed()){
+  if(image.isEmpty()&&mainWindow&&!mainWindow.isDestroyed()&&!mainWindow.webContents.isLoadingMainFrame()){
     const data=JSON.stringify('data:image/webp;base64,'+bytes.toString('base64'));
-    const png=await mainWindow.webContents.executeJavaScript(`new Promise(resolve=>{
+    const png=await decodeInPage(()=>mainWindow.webContents.executeJavaScript(`new Promise(resolve=>{
       const image=new Image(),timer=setTimeout(()=>{image.src='';resolve(null)},1500);
       image.onerror=()=>{clearTimeout(timer);resolve(null)};
       image.onload=()=>{clearTimeout(timer);if(image.naturalWidth<1||image.naturalHeight<1||image.naturalWidth>512||image.naturalHeight>512){resolve(null);return}
         const canvas=document.createElement('canvas');canvas.width=160;canvas.height=160;
-        canvas.getContext('2d').drawImage(image,0,0,160,160);resolve(canvas.toDataURL('image/png'))};image.src=${data}})`);
+        canvas.getContext('2d').drawImage(image,0,0,160,160);resolve(canvas.toDataURL('image/png'))};image.src=${data}})`));
     if(png)image=nativeImage.createFromDataURL(png);
   }
   const size=image.getSize();return !image.isEmpty()&&size.width<=512&&size.height<=512?image.resize({width:160,height:160}):null;
@@ -370,7 +372,7 @@ async function dispatchNotification(eventName, payload, sessionTransition = null
   if (preference.desktop[notificationEvent] && Notification.isSupported()) {
     try {
       let portraitPath=null;
-      try{const portrait=await notificationPortraits.get(targetUid,{kind:notificationEvent});portraitPath=await portraitFiles?.get(targetUid,portrait)}catch{}
+      try{portraitPath=await preparePortrait(targetUid,{kind:notificationEvent},{cache:notificationPortraits,files:portraitFiles})}catch{}
       if(quitting||!normalizedNotificationPreference(settings.notificationPreferences?.[targetUid]).desktop[notificationEvent]
           ||(notificationEvent==='chat'&&(chatRoomIsMuted(payload,settings.mutedChatRooms)
              ||isChatRead({uid:targetUid,session_id:payload.session_id,id:payload.id},chatReadThrough))))return;

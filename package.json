@@ -1,6 +1,6 @@
 {
   "name": "stelchat-desktop",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "StelChat Windows companion",
   "main": "main.cjs",
   "author": "StelChat",
@@ -44,6 +44,7 @@
       "chat-notification-read.cjs",
       "notification-portraits.cjs",
       "portrait-files.cjs",
+      "portrait-deadline.cjs",
       "windows-toast.cjs",
       "emoji-renderer.js",
       "emoji-cache.cjs",

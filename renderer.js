@@ -8,7 +8,7 @@ const state = {
   recentPreviews: new Map(), recentPreviewLoading: new Set(), recentPreviewRequests: new Map(),
   unreadRecentKeys: new Set(), knownRecentIds: new Map(), recentBaselineReady: false,
   selectedMemberUid: '', memberSessions: [], memberSessionsLoading: false,
-  memberSessionsLoadedUid: '',
+  memberSessionsLoadedUid: '', memberSessionsOwnerUid: '', memberSelectionRevision: 0,
   memberSessionsError: '', expandedMemberSessionId: null,
   memberPreviews: new Map(), memberPreviewLoading: new Set(), memberPreviewRequests: new Map(),
   memberRequestId: 0, previewRequestId: 0,
@@ -213,9 +213,12 @@ function markVisibleChatRead() {
 }
 window.openChatNotification=async route=>{
   if(!state.streamers.some(m=>m.uid===route.uid))await load(true);
-  state.selectedMemberUid=route.uid;state.expandedMemberSessionId=null;
+  if(!state.streamers.some(m=>m.uid===route.uid))return;
+  selectChatMember(route.uid);state.expandedMemberSessionId=null;
+  const selectionRevision=state.memberSelectionRevision;
   document.querySelector('[data-tab="member"]').click();
   await loadMemberSessions(route.uid,true);
+  if(state.selectedMemberUid!==route.uid||state.memberSelectionRevision!==selectionRevision)return;
   const session=state.memberSessions.find(s=>String(s.id)===route.session_id);
   if(session){await expandMemberSession(session);await window.stelchat.acknowledgeNotifications?.([route.event_key]);}
 };
@@ -314,11 +317,29 @@ function selectedMember() {
   return state.streamers.find((member) => member.uid === state.selectedMemberUid);
 }
 
+function selectChatMember(uid) {
+  const changed=uid!==state.selectedMemberUid;
+  state.selectedMemberUid=uid;
+  if(!changed&&state.memberSessionsOwnerUid===uid)return;
+  state.memberSelectionRevision+=1;
+  state.memberRequestId+=1;
+  state.memberSessionsOwnerUid=uid;
+  state.memberSessions=[];
+  state.memberSessionsLoadedUid='';
+  state.memberSessionsLoading=false;
+  state.memberSessionsError='';
+  state.expandedMemberSessionId=null;
+  state.memberPreviews.clear();
+  state.memberPreviewLoading.clear();
+  state.memberPreviewRequests.clear();
+}
+
 function renderMemberSelector() {
   const select = $('#member-chat-select');
-  state.selectedMemberUid = resolveSelectedMemberUid(
+  const selectedUid = resolveSelectedMemberUid(
     state.selectedMemberUid, state.settings.selectedMemberUid, state.streamers,
   );
+  if(selectedUid!==state.selectedMemberUid)selectChatMember(selectedUid);
   select.innerHTML = state.streamers.map((member) => `
     <option value="${escapeHtml(member.uid)}" data-unread="${memberHasUnread(member.uid)}"${member.uid === state.selectedMemberUid ? ' selected' : ''}>${escapeHtml(member.name)}</option>
   `).join('');
@@ -381,7 +402,8 @@ function renderMemberSessions() {
 }
 
 async function loadMemberSessions(uid, force = false, background = false) {
-  if (!uid || (!force && state.memberSessionsLoadedUid === uid)) return;
+  if (!uid || uid!==state.selectedMemberUid || (!force && state.memberSessionsLoadedUid === uid)) return;
+  if(state.memberSessionsOwnerUid!==uid)selectChatMember(uid);
   if (background && state.memberSessionsLoading) return;
   const requestId = ++state.memberRequestId;
   const memberRevisionAtStart = state.memberSessionRevision;
@@ -411,6 +433,8 @@ async function loadMemberSessions(uid, force = false, background = false) {
         invalidateMemberPreview(key);
         if (state.expandedMemberSessionId === session.id) previewToRefresh = session;
       }
+      if(state.expandedMemberSessionId===session.id&&!state.memberPreviewLoading.has(key)
+          &&(!state.memberPreviews.has(key)||state.memberPreviews.get(key).error))previewToRefresh=session;
     }
     shouldRender = !background || JSON.stringify(state.memberSessions) !== JSON.stringify(mergedSessions);
     state.memberSessions = mergedSessions;
@@ -434,11 +458,14 @@ async function loadMemberSessions(uid, force = false, background = false) {
 
 async function expandMemberSession(session) {
   const targetUid = state.selectedMemberUid;
+  if(state.memberSessionsOwnerUid!==targetUid||!state.memberSessions.some(item=>item.id===session.id))return;
+  const selectionRevision=state.memberSelectionRevision;
   const key = memberPreviewStateKey(session.id, targetUid);
   state.expandedMemberSessionId = session.id;
   renderMemberSessions();
   if (state.memberPreviewLoading.has(key)) return;
-  if (state.memberPreviews.has(key) && !state.memberPreviews.get(key).error) {acknowledgeChatMessages(state.memberPreviews.get(key).messages,targetUid,session.id);return;}
+  if (state.memberPreviews.has(key) && !state.memberPreviews.get(key).error
+      && (state.memberPreviews.get(key).messages.length||!Number(session.message_count))) {acknowledgeChatMessages(state.memberPreviews.get(key).messages,targetUid,session.id);return;}
   state.memberPreviews.delete(key);
   state.memberPreviewLoading.add(key);
   state.memberPreviews.set(key, { messages: [] });
@@ -447,9 +474,10 @@ async function expandMemberSession(session) {
   renderMemberSessions();
   try {
     const preview = await window.stelchat.sessionPreview(session.id, targetUid);
-    if (targetUid !== state.selectedMemberUid
+    if (targetUid !== state.selectedMemberUid || selectionRevision!==state.memberSelectionRevision
         || state.memberPreviewRequests.get(key) !== requestToken) return;
     const realtimeMessages = state.memberPreviews.get(key)?.messages || [];
+    if(!Array.isArray(preview.messages)||(Number(session.message_count)>0&&!preview.messages.length&&!realtimeMessages.length))throw Error('Incomplete member preview');
     state.memberPreviews.set(key, {
       messages: window.stelchatRealtimeMerge.mergePreviewMessages(
         preview.messages, realtimeMessages,
@@ -822,6 +850,10 @@ document.querySelectorAll('[data-tab]').forEach((button) => button.addEventListe
   if (state.activeTab === 'member' && state.selectedMemberUid
       && state.memberSessionsLoadedUid !== state.selectedMemberUid) {
     void loadMemberSessions(state.selectedMemberUid);
+  } else if(state.activeTab==='member'&&state.expandedMemberSessionId){
+    const session=state.memberSessions.find(item=>item.id===state.expandedMemberSessionId);
+    const key=memberPreviewStateKey(state.expandedMemberSessionId);
+    if(session&&!state.memberPreviewLoading.has(key)&&(!state.memberPreviews.has(key)||state.memberPreviews.get(key).error))void expandMemberSession(session);
   }
   if (state.activeTab === 'recent' && state.expandedRecentKey && recentIsBeingRead(state.expandedRecentKey)) {
     markRecentRead(state.expandedRecentKey, true);
@@ -829,16 +861,10 @@ document.querySelectorAll('[data-tab]').forEach((button) => button.addEventListe
 }));
 
 $('#member-chat-select').addEventListener('change', (event) => {
-  state.selectedMemberUid = event.target.value;
-  state.memberSessions = [];
-  state.memberSessionsLoadedUid = '';
-  state.memberSessionsError = '';
-  state.expandedMemberSessionId = null;
-  state.memberPreviews.clear();
-  state.memberPreviewLoading.clear();
-  state.memberPreviewRequests.clear();
-  void applySettingsUpdate(() => window.stelchat.setSelectedMember(state.selectedMemberUid));
-  void loadMemberSessions(state.selectedMemberUid, true);
+  const uid=event.target.value;
+  selectChatMember(uid);
+  void applySettingsUpdate(() => window.stelchat.setSelectedMember(uid));
+  void loadMemberSessions(uid, true);
 });
 
 $('#recent-mark-all-read').addEventListener('click', markAllRecentRead);
@@ -1005,6 +1031,7 @@ window.stelchat.onEvent(({ eventName, payload }) => {
     }
     if (!recentAlreadyHasMessage || preview) renderRecent();
     if (payload.target_uid === state.selectedMemberUid) {
+      if(state.memberSessionsOwnerUid!==payload.target_uid)selectChatMember(payload.target_uid);
       state.memberSessionRevision += 1;
       rememberRevision(
         state.memberSessionKeyRevisions,

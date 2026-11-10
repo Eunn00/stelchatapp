@@ -1,4 +1,5 @@
 const https=require('node:https');
+const{withDeadline}=require('./portrait-deadline.cjs');
 function portraitPath(uid,kind='chat',avatarPath=''){
  if(!/^[a-f0-9]{32}$/.test(uid))return null;
  if(kind==='chat'||kind==='live')return '/api/profile-images/'+uid;
@@ -20,20 +21,26 @@ function fetchPortrait(uid,sourcePath='/api/profile-images/'+uid){
  });
 }
 class PortraitCache{
- constructor({load=fetchPortrait,decode,now=Date.now,limit=32}){
-  this.load=load;this.decode=decode;this.now=now;this.limit=limit;this.cache=new Map();this.pending=new Map();
+ constructor({load=fetchPortrait,decode,now=Date.now,limit=32,timeoutMs=2200,onTimeout=()=>{}}){
+  Object.assign(this,{load,decode,now,limit,timeoutMs,onTimeout});this.cache=new Map();this.pending=new Map();this.lastGood=new Map();
  }
  async get(uid,{kind='chat',avatarPath=''}={}){
   const key=portraitPath(uid,kind,avatarPath);if(!key)return null;
-  const hit=this.cache.get(key);if(hit&&hit.until>this.now())return hit.image;
+  const owner=uid+(['tweet','space'].includes(kind)?':x':':chzzk');
+  const previous=this.lastGood.get(owner)||null;
+  const hit=this.cache.get(key);if(hit&&hit.until>this.now())return hit.image||previous;
   if(this.pending.has(key))return this.pending.get(key);
-  // Fail open to a normal text toast rather than delaying an alert burst.
-  if(this.pending.size>=4)return hit?.image||null;
+  if(this.pending.size>=4)return hit?.image||previous;
   const job=(async()=>{
-   let image=null;try{const bytes=await this.load(uid,key);if(bytes?.length&&bytes.length<=262144)image=await this.decode(bytes)}catch{}
-   this.cache.delete(key);this.cache.set(key,{image,until:this.now()+(image?86400000:300000)});
+   const image=await withDeadline(async()=>{
+    const bytes=await this.load(uid,key);
+    return bytes?.length&&bytes.length<=262144?await this.decode(bytes):null;
+   },this.timeoutMs,null,this.onTimeout);
+   if(image){this.lastGood.delete(owner);this.lastGood.set(owner,image);while(this.lastGood.size>this.limit)this.lastGood.delete(this.lastGood.keys().next().value)}
+   const fallback=image||previous;
+   this.cache.delete(key);this.cache.set(key,{image:fallback,until:this.now()+(image?86400000:300000)});
    while(this.cache.size>this.limit)this.cache.delete(this.cache.keys().next().value);
-   return image;
+   return fallback;
   })();
   this.pending.set(key,job);
   try{return await job}finally{this.pending.delete(key)}
